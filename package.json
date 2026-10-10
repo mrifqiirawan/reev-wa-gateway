@@ -1,15 +1,16 @@
 {
-  "name": "react-example",
+  "name": "reev-wa-gateway",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.6.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "tsx server.ts",
+    "dev": "node --import tsx scripts/dev.mjs",
+    "start": "node --import tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "node -e \"for (const p of ['dist', 'server.js']) require('node:fs').rmSync(p, {recursive:true, force:true})\"",
+    "lint": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -36,9 +37,11 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.12.0 <25"
   }
 }

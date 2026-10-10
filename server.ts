@@ -1,3 +1,5 @@
+import 'dotenv/config';
+import { installAuth } from './src/server/auth.js';
 import express, { Request, Response } from 'express';
 import QRCode from 'qrcode';
 import path from 'path';
@@ -259,116 +261,12 @@ baileysManager.setIncomingMessageHandler(async ({ senderNumber, senderName, mess
   return replyText;
 });
 
-// Initialize Baileys engine
-baileysManager.initSocket().catch((err) => {
-  console.warn('Initial Baileys boot notice:', err);
-});
-
 // ==========================================
 // REST API ROUTES (/api/*)
 // ==========================================
 
-// 0. ADMIN AUTHENTICATION ENGINE
-const AUTH_FILE = path.resolve(process.cwd(), 'sessions/admin_auth.json');
-let adminAuth = {
-  username: 'admin',
-  password: 'admin123',
-};
-
-// Load saved credentials if present
-try {
-  if (fs.existsSync(AUTH_FILE)) {
-    const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-    adminAuth = { ...adminAuth, ...JSON.parse(raw) };
-  }
-} catch (e) {
-  console.warn('Could not read admin_auth.json, using defaults:', e);
-}
-
-const activeAdminTokens = new Set<string>();
-
-// Login Route
-app.post('/api/auth/login', (req: Request, res: Response) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'Username dan password wajib diisi' });
-  }
-
-  if (username === adminAuth.username && password === adminAuth.password) {
-    const token = 'reev_adm_' + crypto.randomBytes(32).toString('hex');
-    activeAdminTokens.add(token);
-    return res.json({
-      success: true,
-      token,
-      user: { username: adminAuth.username, role: 'admin' },
-      message: 'Login berhasil'
-    });
-  }
-
-  return res.status(401).json({
-    success: false,
-    error: 'Username atau password salah. (Default: admin / admin123)'
-  });
-});
-
-// Verify Token Route
-app.get('/api/auth/verify', (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-  if (token && activeAdminTokens.has(token)) {
-    return res.json({
-      success: true,
-      user: { username: adminAuth.username, role: 'admin' }
-    });
-  }
-
-  return res.status(401).json({ success: false, error: 'Sesi tidak valid atau telah berakhir' });
-});
-
-// Change Credentials Route
-app.post('/api/auth/change-credentials', (req: Request, res: Response) => {
-  const { currentPassword, newUsername, newPassword } = req.body;
-
-  if (!currentPassword) {
-    return res.status(400).json({ success: false, error: 'Password saat ini wajib diisi untuk verifikasi' });
-  }
-
-  if (currentPassword !== adminAuth.password) {
-    return res.status(403).json({ success: false, error: 'Password saat ini tidak sesuai' });
-  }
-
-  if (newUsername && newUsername.trim().length >= 3) {
-    adminAuth.username = newUsername.trim();
-  }
-
-  if (newPassword && newPassword.trim().length >= 4) {
-    adminAuth.password = newPassword.trim();
-  }
-
-  // Persist to disk
-  try {
-    const dir = path.dirname(AUTH_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(AUTH_FILE, JSON.stringify(adminAuth, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error saving admin_auth.json:', err);
-  }
-
-  res.json({
-    success: true,
-    message: 'Kredensial login berhasil diperbarui!',
-    username: adminAuth.username
-  });
-});
-
-// Logout Route
-app.post('/api/auth/logout', (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  if (token) activeAdminTokens.delete(token);
-  res.json({ success: true, message: 'Berhasil logout' });
-});
+// Persistent auth lives on the single always-on backend.
+installAuth(app, path.resolve(process.env.DATA_DIR || 'sessions'));
 
 // 1. System Status
 app.get('/api/status', (_req: Request, res: Response) => {
@@ -376,7 +274,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.5.0-production',
+    version: '2.6.0',
     engine: 'Baileys Multi-Device Official Engine',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,
@@ -424,7 +322,7 @@ app.post('/api/devices/create', async (req: Request, res: Response) => {
 
 app.post('/api/devices/:id/reconnect', async (_req: Request, res: Response) => {
   try {
-    await baileysManager.initSocket();
+    await baileysManager.reconnect();
     const dev = baileysManager.getDeviceState();
     res.json({ success: true, device: dev, message: 'Reconnection sequence initiated' });
   } catch (err: unknown) {
@@ -433,9 +331,11 @@ app.post('/api/devices/:id/reconnect', async (_req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/devices/:id', async (_req: Request, res: Response) => {
-  await baileysManager.disconnect();
-  res.json({ success: true, message: 'Session disconnected and reset' });
+app.delete('/api/devices/:id', async (_req: Request, res: Response, next) => {
+  try {
+    await baileysManager.disconnect();
+    res.json({ success: true, message: 'Session disconnected and reset' });
+  } catch (err) { next(err); }
 });
 
 // 3. Outbound Message Dispatcher
@@ -923,6 +823,12 @@ app.get('/api/export/:type', (req: Request, res: Response) => {
 // VITE SPA INTEGRATION & STATIC SERVING
 // ==========================================
 
+app.use('/api', (_req, res) => res.status(404).json({ success: false, error: 'Endpoint tidak ditemukan' }));
+app.use((err: any, _req: Request, res: Response, _next: any) => {
+  console.error('Request failed:', err.message);
+  res.status(err.status || 500).json({ success: false, error: 'Operasi gagal. Periksa log backend dan izin penyimpanan.' });
+});
+
 async function setupServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
@@ -941,13 +847,17 @@ async function setupServer() {
     });
   }
 
+  if (fs.existsSync(path.resolve(process.env.DATA_DIR || 'sessions', 'default/creds.json'))) {
+    void baileysManager.initSocket().catch(err => console.error('Gagal memulihkan sesi WA:', err.message));
+  }
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 REEV WA Gateway listening on http://0.0.0.0:${PORT}`);
   });
 }
 
 // Only launch listening server in non-serverless environments (VPS, local, Docker)
-if (!process.env.VERCEL) {
+if (process.env.VERCEL) throw new Error('Jalankan server.ts pada backend permanen; Vercel hanya menjalankan api/index.ts.');
+if (process.env.NODE_ENV !== 'test') {
   setupServer().catch(err => {
     console.error('Failed to start REEV WA Gateway server:', err);
   });

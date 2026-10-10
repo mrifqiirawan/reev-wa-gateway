@@ -241,9 +241,9 @@ class ReevResponse {
 # PANDUAN DEPLOYMENT REEV WA GATEWAY DI VPS (DEWAWEB / UBUNTU / LINUX)
 # =========================================================================
 
-# 1. Update server dan instal Node.js v20 LTS
+# 1. Update server dan instal Node.js 22.12+
 sudo apt update && sudo apt upgrade -y
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs git build-essential
 
 # 2. Instal PM2 (Process Manager) secara global
@@ -254,11 +254,13 @@ git clone <URL_REPOSITORY_ANDA> /var/www/reev-wa-gateway
 cd /var/www/reev-wa-gateway
 
 # 4. Instal dependensi dan lakukan build
-npm install
+npm ci
+cp .env.example .env
+# Isi ADMIN_PASSWORD pada .env sebelum start
 npm run build
 
 # 5. Jalankan daemon persisten 24/7 menggunakan PM2
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup
 
@@ -306,15 +308,21 @@ export async function kirimOtp(nomor, otp) {
 
   const vercelCode = `{
   "version": 2,
+  "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api"
+      "source": "/api/:path*",
+      "destination": "/api/index?path=:path*"
     },
     {
-      "source": "/((?!api/|.*\\\\..*).*)",
+      "source": "/((?!api/|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]
@@ -525,14 +533,14 @@ export async function kirimOtp(nomor, otp) {
           <div className="p-4 rounded-xl bg-gradient-to-r from-sky-950/30 to-[#0b1229] border border-sky-500/20 text-xs text-slate-300 space-y-2">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
               <Check className="w-4 h-4 text-emerald-400" />
-              Konfigurasi Vercel Zero-Config (Bebas Error HTTP 404)
+              Konfigurasi Vercel + Backend Node.js Permanen
             </h3>
             <p className="text-slate-400 leading-relaxed">
               File <code className="text-sky-400 font-mono">vercel.json</code> dan Serverless Function <code className="text-sky-400 font-mono">api/index.ts</code> sudah terpasang otomatis di proyek ini. Saat di-deploy ke Vercel:
             </p>
             <ul className="list-disc list-inside space-y-1 text-slate-400">
-              <li>Request <code className="text-sky-300 font-mono">/api/*</code> otomatis diteruskan ke Serverless Express.</li>
-              <li>Aplikasi memiliki <strong>Dual-Authentication Fallback</strong> otomatis sehingga login (admin / admin123) selalu berhasil mulus.</li>
+              <li>Request <code className="text-sky-300 font-mono">/api/*</code> diteruskan ke BACKEND_URL. Isi BACKEND_URL dan BACKEND_SHARED_SECRET pada Vercel.</li>
+              <li>Aplikasi memakai cookie HttpOnly dan penyimpanan sesi pada backend permanen. Login harus diverifikasi backend.</li>
               <li>Tersedia file <code className="text-sky-300 font-mono">vercel.json</code> siap deploy di root directory.</li>
             </ul>
           </div>

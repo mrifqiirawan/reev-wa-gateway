@@ -7,6 +7,7 @@ export interface DeviceSession {
   status: DeviceStatus;
   batteryLevel?: number;
   qrCode?: string;
+  lastError?: string;
   pairingCode?: string;
   lastConnected?: string;
   uptimeSeconds: number;

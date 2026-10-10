@@ -48,8 +48,8 @@ export const SettingsSecurityView: React.FC<SettingsSecurityViewProps> = ({
       return;
     }
 
-    if (newPassword && newPassword.length < 4) {
-      setErrorMsg('Password baru minimal 4 karakter');
+    if (newPassword && newPassword.length < 8) {
+      setErrorMsg('Password baru minimal 8 karakter');
       return;
     }
 
@@ -159,7 +159,7 @@ export const SettingsSecurityView: React.FC<SettingsSecurityViewProps> = ({
                   required
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Masukkan password saat ini (default: admin123)"
+                  placeholder="Masukkan password saat ini"
                   className="w-full bg-[#020618] border border-slate-800 rounded-lg px-3 pr-10 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
                 />
                 <button
@@ -239,7 +239,7 @@ export const SettingsSecurityView: React.FC<SettingsSecurityViewProps> = ({
           Rekomendasi Keamanan Setelah Deployment:
         </div>
         <ul className="list-disc list-inside space-y-1.5 text-slate-400 leading-relaxed">
-          <li>Segera ganti password default (<code className="text-sky-300 font-mono">admin123</code>) menjadi password yang kuat (kombinasi huruf besar, kecil, angka, dan simbol).</li>
+          <li>Gunakan password yang kuat (kombinasi huruf besar, kecil, angka, dan simbol).</li>
           <li>Kredensial disimpan secara persisten di file <code className="text-sky-300 font-mono">sessions/admin_auth.json</code> di server Anda sehingga tidak akan ter-reset saat restart.</li>
           <li>Pastikan tidak membagikan token login atau file kredensial kepada pihak yang tidak berwenang.</li>
           <li>Untuk deployment di VPS publik, disarankan mengaktifkan SSL/HTTPS melalui Nginx Reverse Proxy dan certbot Let's Encrypt.</li>

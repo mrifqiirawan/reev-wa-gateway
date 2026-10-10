@@ -33,6 +33,8 @@ export default function App() {
   const [adminUser, setAdminUser] = useState<{ username: string; role: string } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
 
+  const [authError, setAuthError] = useState<string | null>(null);
+
   // Navigation & UI State
   const [currentView, setCurrentView] = useState<NavView>('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -62,13 +64,20 @@ export default function App() {
         } else {
           setIsAuthenticated(false);
         }
-      } catch {
+      } catch (err) {
+        if ((err as { status?: number }).status !== 401) setAuthError(err instanceof Error ? err.message : 'Backend tidak dapat dijangkau.');
         setIsAuthenticated(false);
       } finally {
         setIsAuthChecking(false);
       }
     };
     checkAuth();
+  }, []);
+
+  useEffect(() => {
+    const expired = () => { setIsAuthenticated(false); setAdminUser(null); };
+    window.addEventListener('reev-session-expired', expired);
+    return () => window.removeEventListener('reev-session-expired', expired);
   }, []);
 
   // Fetch all gateway states
@@ -100,7 +109,7 @@ export default function App() {
     } catch (err) {
       console.error('Error fetching REEV Gateway data:', err);
     }
-  }, [isAuthenticated, fallbackConfig]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -111,7 +120,8 @@ export default function App() {
   }, [isAuthenticated, refreshAllData]);
 
   const handleLogout = async () => {
-    await apiService.logout();
+    try { await apiService.logout(); }
+    catch (err) { alert(err instanceof Error ? err.message : 'Logout gagal. Coba lagi.'); return; }
     setIsAuthenticated(false);
     setAdminUser(null);
   };
@@ -126,6 +136,8 @@ export default function App() {
       </div>
     );
   }
+
+  if (authError) return <div className="min-h-screen bg-[#020618] text-slate-200 flex flex-col items-center justify-center gap-4 p-8"><p role="alert">{authError}</p><p>Sesi tersimpan tidak dihapus. Coba lagi setelah backend tersedia.</p><button className="bg-sky-600 p-3 rounded" onClick={() => window.location.reload()}>Coba lagi</button></div>;
 
   // Render Login Gate if unauthenticated
   if (!isAuthenticated) {

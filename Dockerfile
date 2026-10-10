@@ -1,28 +1,11 @@
-FROM node:20-alpine
-
-# Set working directory
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
-# Install build dependencies if needed
-RUN apk add --no-cache python3 make g++
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy application files
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
-
-# Build Vite frontend assets
-RUN npm run build
-
-# Expose REEV WA Gateway Port
+RUN npm run build && mkdir -p /app/sessions && chown -R node:node /app
+ENV NODE_ENV=production PORT=3000 DATA_DIR=/app/sessions
+USER node
 EXPOSE 3000
-
-# Volume for persistent Baileys session storage
-VOLUME ["/app/sessions"]
-
-# Start full-stack server
-CMD ["npm", "run", "start"]
+CMD ["npm", "start"]

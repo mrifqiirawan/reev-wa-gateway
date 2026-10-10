@@ -24,7 +24,7 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
   webhookConfig,
   onRefresh,
 }) => {
-  const [apiKey] = useState('reev_live_sec_prod_key_' + Math.random().toString(36).substring(2, 10));
+  const [apiKey] = useState('GATEWAY_API_KEY_DARI_ENV_BACKEND');
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
 
@@ -71,10 +71,10 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
     try {
       const parsed = JSON.parse(reqBody);
       const res = await fetch(endpoint, {
+        credentials: 'same-origin',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(parsed),
       });

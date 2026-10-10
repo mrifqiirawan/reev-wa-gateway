@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
@@ -13,7 +14,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const SESSIONS_DIR = path.resolve(process.cwd(), 'sessions');
+const SESSIONS_DIR = path.resolve(process.env.DATA_DIR || 'sessions');
 
 export interface BaileysDeviceState {
   id: string;
@@ -22,6 +23,7 @@ export interface BaileysDeviceState {
   status: 'connected' | 'connecting' | 'disconnected' | 'qr_ready' | 'auth_failure';
   batteryLevel: number;
   qrCode?: string;
+  lastError?: string;
   pairingCode?: string;
   lastConnected?: string;
   uptimeSeconds: number;
@@ -36,7 +38,7 @@ export type IncomingMessageHandler = (msg: {
   remoteJid: string;
 }) => Promise<string | null>;
 
-class BaileysManager {
+export class BaileysManager {
   private socket: WASocket | null = null;
   private qrRaw: string | null = null;
   private qrDataUrl: string | null = null;
@@ -47,15 +49,38 @@ class BaileysManager {
   private startTime: number = Date.now();
   private incomingMessageHandler: IncomingMessageHandler | null = null;
   private isConnecting: boolean = false;
+  private generation = 0;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private connectionTimer?: ReturnType<typeof setTimeout>;
+  private retryCount = 0;
+  private lastError?: string;
 
-  constructor() {
-    if (!fs.existsSync(SESSIONS_DIR)) {
-      try {
-        fs.mkdirSync(SESSIONS_DIR, { recursive: true });
-      } catch (err) {
-        console.warn('Could not create sessions directory:', err);
-      }
-    }
+  private clearTimers() {
+    clearTimeout(this.reconnectTimer);
+    clearTimeout(this.connectionTimer);
+  }
+  private stopSocket() {
+    this.generation++;
+    this.clearTimers();
+    this.socket?.ev.removeAllListeners('connection.update');
+    this.socket?.ev.removeAllListeners('messages.upsert');
+    this.socket?.ev.removeAllListeners('creds.update');
+    this.socket?.end(new Error('Local connection stopped'));
+    this.socket = null;
+    this.isConnecting = false;
+    this.qrDataUrl = null;
+    this.qrRaw = null;
+    this.pairingCode = null;
+  }
+  public async reconnect() {
+    this.stopSocket();
+    this.status = 'disconnected';
+    this.retryCount = 0;
+    return this.initSocket();
+  }
+
+  constructor(private dependencies = { makeSocket: makeWASocket, loadAuth: useMultiFileAuthState, sessionsDir: SESSIONS_DIR }) {
+    fs.mkdirSync(this.dependencies.sessionsDir, { recursive: true, mode: 0o700 });
   }
 
   public setIncomingMessageHandler(handler: IncomingMessageHandler) {
@@ -66,16 +91,26 @@ class BaileysManager {
     if (this.isConnecting || this.status === 'connected') {
       return;
     }
+    this.clearTimers();
+    const generation = ++this.generation;
     this.isConnecting = true;
     this.status = 'connecting';
+    this.lastError = undefined;
+    this.connectionTimer = setTimeout(() => {
+      if (generation !== this.generation || this.status !== 'connecting') return;
+      this.stopSocket();
+      this.status = 'disconnected';
+      this.lastError = 'Koneksi WhatsApp timeout. Periksa internet backend lalu klik Sambungkan Ulang.';
+    }, 60000);
 
     try {
-      const sessionPath = path.join(SESSIONS_DIR, 'default');
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+      const sessionPath = path.join(this.dependencies.sessionsDir, 'default');
+      const { state, saveCreds } = await this.dependencies.loadAuth(sessionPath);
 
       const logger = pino({ level: 'silent' });
 
-      this.socket = makeWASocket({
+      if (generation !== this.generation) return;
+      this.socket = this.dependencies.makeSocket({
         auth: state,
         logger,
         printQRInTerminal: false,
@@ -84,19 +119,25 @@ class BaileysManager {
         markOnlineOnConnect: true,
       });
 
-      this.socket.ev.on('creds.update', saveCreds);
+      this.socket.ev.on('creds.update', () => {
+        void saveCreds().catch(err => { this.lastError = 'Gagal menyimpan sesi WhatsApp. Periksa izin DATA_DIR.'; console.error(err); });
+      });
 
       this.socket.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
+        if (generation !== this.generation) return;
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
           this.qrRaw = qr;
           try {
-            this.qrDataUrl = await QRCode.toDataURL(qr, {
+            const dataUrl = await QRCode.toDataURL(qr, {
               margin: 2,
               width: 300,
               color: { dark: '#020618', light: '#ffffff' }
             });
+            if (generation !== this.generation) return;
+            this.qrDataUrl = dataUrl;
+            clearTimeout(this.connectionTimer);
             this.status = 'qr_ready';
           } catch (qrErr) {
             console.error('Error generating QR DataURL:', qrErr);
@@ -104,24 +145,25 @@ class BaileysManager {
         }
 
         if (connection === 'close') {
-          this.isConnecting = false;
+          this.stopSocket();
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-          console.log(`Baileys connection closed. Reason: ${statusCode}, shouldReconnect: ${shouldReconnect}`);
-
-          if (statusCode === DisconnectReason.loggedOut) {
-            this.status = 'disconnected';
-            this.qrDataUrl = null;
+          if (statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession) {
+            this.status = 'auth_failure';
             this.connectedPhone = '';
-          } else {
+            this.lastError = 'Sesi WhatsApp tidak valid. Hapus sesi perangkat lalu tautkan ulang.';
+          } else if (this.retryCount < 5) {
+            const delay = Math.min(3000 * 2 ** this.retryCount++, 30000);
             this.status = 'connecting';
-            // Reconnect with backoff
-            setTimeout(() => {
-              this.initSocket().catch(() => {});
-            }, 3000);
+            this.lastError = 'Koneksi terputus; mencoba menyambungkan ulang.';
+            this.reconnectTimer = setTimeout(() => { void this.initSocket().catch(() => {}); }, delay);
+          } else {
+            this.status = 'disconnected';
+            this.lastError = 'Koneksi gagal setelah 5 percobaan. Periksa internet backend lalu sambungkan ulang.';
           }
         } else if (connection === 'open') {
+          clearTimeout(this.connectionTimer);
+          this.retryCount = 0;
+          this.lastError = undefined;
           this.isConnecting = false;
           this.status = 'connected';
           this.qrDataUrl = null;
@@ -129,7 +171,7 @@ class BaileysManager {
           this.startTime = Date.now();
 
           const userJid = this.socket?.user?.id || '';
-          this.connectedPhone = userJid.split(':')[0] || userJid.split('@')[0] || '';
+          this.connectedPhone = userJid.split('@')[0].split(':')[0];
           this.connectedName = this.socket?.user?.name || 'REEV Production Bot';
           console.log(`✅ Baileys Connected successfully! Phone: ${this.connectedPhone}`);
         }
@@ -178,9 +220,11 @@ class BaileysManager {
         }
       });
     } catch (err) {
-      this.isConnecting = false;
+      if (generation !== this.generation) return;
+      this.stopSocket();
       this.status = 'disconnected';
-      console.warn('Baileys initialization note:', err);
+      this.lastError = err instanceof Error ? err.message : 'Inisialisasi Baileys gagal';
+      throw err;
     }
   }
 
@@ -192,7 +236,11 @@ class BaileysManager {
     if (!cleanPhone) throw new Error('Nomor telepon tidak valid');
 
     try {
-      const code = await this.socket?.requestPairingCode(cleanPhone);
+      const deadline = Date.now() + 15000;
+      while (this.status === 'connecting' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 200));
+      if (!this.socket || this.status !== 'qr_ready') throw new Error('Koneksi belum siap untuk pairing code. Tunggu QR muncul lalu coba lagi.');
+      const code = await this.socket.requestPairingCode(cleanPhone);
+      if (!code) throw new Error('WhatsApp belum mengembalikan pairing code.');
       this.pairingCode = code || null;
       return code || '';
     } catch (err: unknown) {
@@ -220,12 +268,17 @@ class BaileysManager {
   }
 
   public async disconnect() {
-    try {
-      await this.socket?.logout();
-    } catch {}
+    this.clearTimers();
+    this.generation++;
+    const socket = this.socket;
+    socket?.ev.removeAllListeners('connection.update');
+    try { await socket?.logout(); } catch {}
+    this.stopSocket();
+    fs.rmSync(path.join(this.dependencies.sessionsDir, 'default'), { recursive: true, force: true });
     this.status = 'disconnected';
-    this.qrDataUrl = null;
     this.connectedPhone = '';
+    this.retryCount = 0;
+    this.lastError = undefined;
   }
 
   public getDeviceState(): BaileysDeviceState {
@@ -237,10 +290,11 @@ class BaileysManager {
       status: this.status,
       batteryLevel: 98,
       qrCode: this.qrDataUrl || undefined,
+      lastError: this.lastError,
       pairingCode: this.pairingCode || undefined,
       lastConnected: this.status === 'connected' ? new Date(this.startTime).toISOString() : undefined,
       uptimeSeconds: uptime,
-      platform: 'WhatsApp Multi-Device / Baileys Official',
+      platform: 'WhatsApp Multi-Device / Baileys',
       isDefault: true,
     };
   }

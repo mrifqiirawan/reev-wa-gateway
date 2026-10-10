@@ -18,7 +18,7 @@ interface LoginViewProps {
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,20 +74,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <p className="text-xs text-slate-400 mt-1">
               Masukkan kredensial admin Anda untuk membuka dashboard.
             </p>
-          </div>
-
-          {/* Default Credentials Badge */}
-          <div className="p-3 bg-sky-950/20 border border-sky-500/30 rounded-xl flex items-start gap-2.5 text-xs">
-            <KeyRound className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <span className="font-semibold text-sky-300">Default Kredensial Sistem:</span>
-              <p className="text-slate-400 text-[11px] font-mono">
-                User: <span className="text-white font-semibold">admin</span> · Pass: <span className="text-white font-semibold">admin123</span>
-              </p>
-              <p className="text-[10px] text-slate-500">
-                (Dapat Anda ganti sewaktu-waktu di menu Pengaturan Keamanan)
-              </p>
-            </div>
           </div>
 
           {/* Error Alert */}
@@ -163,7 +149,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
         {/* Footer info */}
         <div className="text-center text-[11px] text-slate-500 font-mono">
-          REEV WA Gateway v2.5.0 · Protected with Session Token Encryption
+          REEV WA Gateway v2.6.0 · Sesi persisten dengan cookie HttpOnly
         </div>
       </div>
     </div>

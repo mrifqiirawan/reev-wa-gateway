@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Smartphone,
   Plus,
@@ -27,9 +27,25 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
   devices,
   onRefresh,
 }) => {
-  const [selectedDevice, setSelectedDevice] = useState<DeviceSession | null>(
-    devices[0] || null
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [liveDevices, setLiveDevices] = useState(devices);
+  const selectedDevice = liveDevices.find(d => d.id === selectedId) || liveDevices[0] || null;
+  const [error, setError] = useState<string | null>(null);
+  const setSelectedDevice = (device: DeviceSession | null) => setSelectedId(device?.id || null);
+  useEffect(() => { setLiveDevices(devices); }, [devices]);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const result = await apiService.getDevices();
+        if (!stopped) { setLiveDevices(result.devices); setError(null); }
+      } catch (err) { if (!stopped) setError(err instanceof Error ? err.message : 'Backend tidak dapat dijangkau'); }
+      if (!stopped) timer = setTimeout(poll, 2500);
+    };
+    void poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, []);
   const [isCreating, setIsCreating] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDevicePhone, setNewDevicePhone] = useState('');
@@ -48,9 +64,10 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
       setNewDeviceName('');
       setNewDevicePhone('');
       onRefresh();
+      setLiveDevices([res.device]);
       setSelectedDevice(res.device);
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Operasi gagal');
     } finally {
       setLoading(false);
     }
@@ -58,10 +75,12 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
 
   const handleReconnect = async (id: string) => {
     try {
-      await apiService.reconnectDevice(id);
+      setError(null);
+      const result = await apiService.reconnectDevice(id);
+      setLiveDevices([result.device]);
       onRefresh();
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Operasi gagal');
     }
   };
 
@@ -74,23 +93,15 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
         setSelectedDevice(devices.find(d => d.id !== id) || null);
       }
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Operasi gagal');
     }
   };
 
   const handleExportCreds = (device: DeviceSession) => {
     const credsData = {
-      sessionId: device.id,
-      deviceName: device.name,
-      phone: device.phone,
-      platform: device.platform,
-      engineVersion: 'Baileys Multi-Device v6.7.x',
-      exportedAt: new Date().toISOString(),
-      keys: {
-        registrationId: 104928,
-        identityKeyPair: '-----BEGIN REEV RSA ENCRYPTED CREDS-----',
-        credsFile: `./sessions/${device.id}/creds.json`,
-      }
+      sessionId: device.id, deviceName: device.name, phone: device.phone,
+      platform: device.platform, exportedAt: new Date().toISOString(),
+      note: 'Metadata perangkat saja, bukan backup sesi. Backup DATA_DIR pada backend untuk pemulihan.',
     };
     const blob = new Blob([JSON.stringify(credsData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -109,6 +120,7 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {(error || selectedDevice?.lastError) && <div role="alert" className="p-3 rounded-lg bg-rose-950 text-rose-200 text-sm">{error || selectedDevice?.lastError}</div>}
       {/* Top Controls Strip */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -194,7 +206,7 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
             Daftar Perangkat Terdaftar ({devices.length})
           </div>
 
-          {devices.map((device) => {
+          {liveDevices.map((device) => {
             const isSelected = selectedDevice?.id === device.id;
             const isConnected = device.status === 'connected';
 
@@ -344,7 +356,7 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
                       </div>
                     ) : (
                       <div className="w-48 h-48 bg-slate-900 border border-slate-800 rounded-lg flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+                        {selectedDevice.status === 'connecting' ? <Loader2 className="w-8 h-8 text-sky-400 animate-spin" /> : <span className="text-xs p-4 text-center text-slate-400">Klik Minta QR Baru untuk menautkan WhatsApp.</span>}
                       </div>
                     )}
 
@@ -353,10 +365,7 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
                     </p>
 
                     <button
-                      onClick={async () => {
-                        await apiService.initBaileys();
-                        onRefresh();
-                      }}
+                      onClick={() => handleReconnect(selectedDevice.id)}
                       className="px-3 py-1.5 text-xs text-sky-400 hover:text-sky-300 bg-slate-900 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
@@ -377,10 +386,11 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
 
                     <div className="p-4 bg-slate-900/90 border border-slate-700 rounded-xl flex items-center justify-between">
                       <span className="text-2xl font-mono font-bold tracking-widest text-sky-400">
-                        {selectedDevice.pairingCode || 'REEV-8821'}
+                        {selectedDevice.pairingCode || 'Belum tersedia'}
                       </span>
                       <button
-                        onClick={() => handleCopyPairingCode(selectedDevice.pairingCode || 'REEV-8821')}
+                        disabled={!selectedDevice.pairingCode}
+                        onClick={() => handleCopyPairingCode(selectedDevice.pairingCode || 'Belum tersedia')}
                         className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg transition-colors flex items-center gap-1 text-xs"
                       >
                         {copiedPairing ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}

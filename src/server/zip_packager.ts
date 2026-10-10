@@ -5,6 +5,7 @@ import path from 'path';
 export async function createProjectZip(): Promise<Buffer> {
   const zip = new JSZip();
   const rootDir = process.cwd();
+  const fullDataDir = path.resolve(process.env.DATA_DIR || 'sessions');
 
   const ignoreList = new Set([
     'node_modules',
@@ -21,7 +22,7 @@ export async function createProjectZip(): Promise<Buffer> {
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      if (ignoreList.has(entry.name)) continue;
+      if (ignoreList.has(entry.name) || (entry.name.startsWith('.env') && entry.name !== '.env.example') || entry.name.endsWith('.zip') || fullDataDir === path.resolve(currentDir, entry.name)) continue;
 
       const fullPath = path.join(currentDir, entry.name);
 
