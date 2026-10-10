@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  reev-wa-gateway:
+    build: .
+    container_name: reev_wa_gateway
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - ./sessions:/app/sessions
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  sessions:
+    driver: local

@@ -1,0 +1,8 @@
+{
+  "name": "REEV WA Gateway",
+  "description": "WhatsApp API Gateway mandiri untuk pengiriman pesan massal, notifikasi OTP, auto-responder interaktif bertenaga Baileys, dan dashboard analitik.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
