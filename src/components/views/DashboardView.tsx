@@ -26,22 +26,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
 }) => {
   const stats = analytics || {
-    totalSentToday: 2480,
-    totalDeliveredToday: 2445,
-    totalFailedToday: 8,
-    totalInboundToday: 520,
-    successRate: 98.6,
-    avgLatencyMs: 382,
+    totalSentToday: 0,
+    totalDeliveredToday: 0,
+    totalFailedToday: 0,
+    totalInboundToday: 0,
+    successRate: 100,
+    avgLatencyMs: 0,
     breakdown: {
-      otp: 620,
-      transactional: 540,
-      promotional: 780,
-      chatbot: 520,
+      otp: 0,
+      transactional: 0,
+      promotional: 0,
+      chatbot: 0,
     },
     hourlyData: [],
   };
 
-  const maxSent = Math.max(...(stats.hourlyData.map(h => h.sent) || [100]), 400);
+  const totalBreakdown =
+    stats.breakdown.otp +
+    stats.breakdown.transactional +
+    stats.breakdown.promotional +
+    stats.breakdown.chatbot;
+
+  const otpPct = totalBreakdown > 0 ? Math.round((stats.breakdown.otp / totalBreakdown) * 100) : 0;
+  const transPct = totalBreakdown > 0 ? Math.round((stats.breakdown.transactional / totalBreakdown) * 100) : 0;
+  const promoPct = totalBreakdown > 0 ? Math.round((stats.breakdown.promotional / totalBreakdown) * 100) : 0;
+  const chatbotPct = totalBreakdown > 0 ? Math.round((stats.breakdown.chatbot / totalBreakdown) * 100) : 0;
+
+  const totalVolume = (stats.totalSentToday + stats.totalInboundToday).toLocaleString('id-ID');
+  const maxSent = Math.max(...(stats.hourlyData.map(h => h.sent) || [1]), 10);
 
   return (
     <div className="space-y-6">
@@ -94,9 +106,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="text-2xl lg:text-3xl font-bold font-mono text-white tabular-nums">
             {stats.totalSentToday.toLocaleString('id-ID')}
           </div>
-          <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>+14.2% dari kemarin</span>
+          <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 font-medium">
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <span>
+              {stats.totalSentToday > 0
+                ? `${stats.totalSentToday.toLocaleString('id-ID')} pesan terkirim`
+                : 'Belum ada pengiriman hari ini'}
+            </span>
           </div>
         </div>
 
@@ -128,7 +144,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {stats.totalInboundToday.toLocaleString('id-ID')}
           </div>
           <div className="mt-2 text-[11px] text-slate-400">
-            Respon instan rata-rata <span className="font-mono text-sky-400">&lt; 200ms</span>
+            Respon otomatis <span className="font-mono text-sky-400">{stats.totalInboundToday > 0 ? `${stats.totalInboundToday} terjawab` : 'Siaga'}</span>
           </div>
         </div>
 
@@ -194,12 +210,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="w-full flex items-end justify-center gap-1 h-44">
                     {/* Sent bar */}
                     <div
-                      style={{ height: `${Math.max(heightPct, 6)}%` }}
+                      style={{ height: `${h.sent > 0 ? Math.max(heightPct, 8) : 2}%` }}
                       className="w-full max-w-[14px] bg-gradient-to-t from-sky-600 to-sky-400 rounded-t-sm group-hover:brightness-125 transition-all"
                     />
                     {/* Inbound bar */}
                     <div
-                      style={{ height: `${Math.max(inboundPct, 4)}%` }}
+                      style={{ height: `${h.inbound > 0 ? Math.max(inboundPct, 6) : 2}%` }}
                       className="w-full max-w-[10px] bg-indigo-500/80 rounded-t-sm group-hover:brightness-125 transition-all"
                     />
                   </div>
@@ -210,8 +226,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-            <span>Puncak Trafik: 14.00 WIB (390 pesan/jam)</span>
-            <span className="font-mono">Throughput: 6.5 pesan/detik</span>
+            <span>
+              {stats.totalSentToday > 0
+                ? `Total Pengiriman: ${stats.totalSentToday.toLocaleString('id-ID')} pesan diproses`
+                : 'Menunggu pengiriman pesan pertama'}
+            </span>
+            <span className="font-mono">
+              {stats.avgLatencyMs > 0 ? `Latensi Rata-rata: ${stats.avgLatencyMs}ms` : 'Throughput: Siaga'}
+            </span>
           </div>
         </div>
 
@@ -225,40 +247,48 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
                   <span className="text-slate-300 font-medium">OTP & Keamanan Akun</span>
-                  <span className="font-mono text-sky-400 tabular-nums">{stats.breakdown.otp} (25%)</span>
+                  <span className="font-mono text-sky-400 tabular-nums">
+                    {stats.breakdown.otp} ({otpPct}%)
+                  </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-sky-400 h-full rounded-full" style={{ width: '25%' }} />
+                  <div className="bg-sky-400 h-full rounded-full transition-all duration-500" style={{ width: `${otpPct}%` }} />
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
                   <span className="text-slate-300 font-medium">Notifikasi Transaksi / Invoice</span>
-                  <span className="font-mono text-emerald-400 tabular-nums">{stats.breakdown.transactional} (22%)</span>
+                  <span className="font-mono text-emerald-400 tabular-nums">
+                    {stats.breakdown.transactional} ({transPct}%)
+                  </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-emerald-400 h-full rounded-full" style={{ width: '22%' }} />
+                  <div className="bg-emerald-400 h-full rounded-full transition-all duration-500" style={{ width: `${transPct}%` }} />
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
                   <span className="text-slate-300 font-medium">Promosi & Broadcast Pelanggan</span>
-                  <span className="font-mono text-amber-400 tabular-nums">{stats.breakdown.promotional} (32%)</span>
+                  <span className="font-mono text-amber-400 tabular-nums">
+                    {stats.breakdown.promotional} ({promoPct}%)
+                  </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-amber-400 h-full rounded-full" style={{ width: '32%' }} />
+                  <div className="bg-amber-400 h-full rounded-full transition-all duration-500" style={{ width: `${promoPct}%` }} />
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
                   <span className="text-slate-300 font-medium">Chatbot & Respon Otomatis</span>
-                  <span className="font-mono text-indigo-400 tabular-nums">{stats.breakdown.chatbot} (21%)</span>
+                  <span className="font-mono text-indigo-400 tabular-nums">
+                    {stats.breakdown.chatbot} ({chatbotPct}%)
+                  </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-indigo-400 h-full rounded-full" style={{ width: '21%' }} />
+                  <div className="bg-indigo-400 h-full rounded-full transition-all duration-500" style={{ width: `${chatbotPct}%` }} />
                 </div>
               </div>
             </div>
@@ -267,7 +297,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="pt-6 border-t border-slate-800/80 mt-6">
             <div className="p-3 bg-[#020618] rounded-lg border border-slate-800 text-xs flex items-center justify-between">
               <span className="text-slate-400">Total Volume Bulan Ini:</span>
-              <span className="font-bold font-mono text-white">74.520 Pesan</span>
+              <span className="font-bold font-mono text-white">{totalVolume} Pesan</span>
             </div>
           </div>
         </div>

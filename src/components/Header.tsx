@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Send, ShieldCheck, Wifi, Download } from 'lucide-react';
+import { Menu, Send, ShieldCheck, Wifi } from 'lucide-react';
 import { NavView } from './Sidebar';
 
 interface HeaderProps {
@@ -100,17 +100,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Zone 3: Primary Action Buttons */}
       <div className="flex items-center gap-2.5">
-        <a
-          href="/api/export/project-zip"
-          download="reev-wa-gateway-production.zip"
-          className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700 active:scale-98 rounded-lg transition-all whitespace-nowrap shrink-0"
-          title="Download Full Project ZIP (siap upload GitHub atau VPS)"
-        >
-          <Download className="w-3.5 h-3.5 text-sky-400" />
-          <span className="hidden sm:inline">Download ZIP Proyek</span>
-          <span className="sm:hidden">ZIP</span>
-        </a>
-
         <button
           onClick={onOpenQuickSend}
           className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-sky-500 hover:bg-sky-400 active:scale-98 rounded-lg shadow-[0_0_15px_rgba(56,189,248,0.3)] transition-all whitespace-nowrap shrink-0"

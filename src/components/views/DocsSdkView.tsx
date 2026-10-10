@@ -337,14 +337,6 @@ export async function kirimOtp(nomor, otp) {
         {/* Quick Download Links */}
         <div className="flex flex-wrap items-center gap-2">
           <a
-            href="/api/export/project-zip"
-            download="reev-wa-gateway-production.zip"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-sky-500 hover:bg-sky-400 active:scale-98 rounded-lg shadow-[0_0_15px_rgba(56,189,248,0.3)] transition-all"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download Proyek Lengkap (ZIP)
-          </a>
-          <a
             href="/api/export/gas"
             download="REEV_WA_GoogleAppsScript.js"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-[#0b1229] border border-slate-800 rounded-lg transition-colors"
