@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana implementasi integrasi Baileys langsung untuk WhatsApp asli, pembersihan data dummy (memulai dari 0 riwayat pesan & log bersih), pembuatan paket ZIP lengkap siap unduh untuk GitHub/VPS, serta penjelasan publikasi gratis vs produksi 24/7.",
-  "updatedAt":  "2026-10-10T09:42:29.462274398Z",
+  "summary":  "Rencana perbaikan kompatibilitas Vercel: Penambahan konfigurasi vercel.json, serverless function adapter api/index.ts, export default Express app di server.ts, serta fallback resilience di sisi klien agar login tidak lagi mengalami error HTTP 404 saat dideploy ke Vercel.",
+  "updatedAt":  "2026-10-10T10:17:01.263785935Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

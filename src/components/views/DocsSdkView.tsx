@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 export const DocsSdkView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'gas' | 'flutter' | 'vps' | 'node'>('gas');
+  const [activeTab, setActiveTab] = useState<'gas' | 'flutter' | 'vps' | 'vercel' | 'node'>('gas');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, id: string) => {
@@ -304,6 +304,22 @@ export async function kirimOtp(nomor, otp) {
   return res.data;
 }`;
 
+  const vercelCode = `{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api/|.*\\\\..*).*)",
+      "destination": "/index.html"
+    }
+  ]
+}`;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -391,6 +407,18 @@ export async function kirimOtp(nomor, otp) {
         >
           <Server className="w-4 h-4" />
           Panduan VPS (Dewaweb, Docker & PM2)
+        </button>
+
+        <button
+          onClick={() => setActiveTab('vercel')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all ${
+            activeTab === 'vercel'
+              ? 'bg-sky-500 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          Deploy Vercel (vercel.json)
         </button>
 
         <button
@@ -494,6 +522,42 @@ export async function kirimOtp(nomor, otp) {
             </div>
             <pre className="p-5 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed">
               {vpsCode}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* CONTENT: TAB VERCEL */}
+      {activeTab === 'vercel' && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-gradient-to-r from-sky-950/30 to-[#0b1229] border border-sky-500/20 text-xs text-slate-300 space-y-2">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-400" />
+              Konfigurasi Vercel Zero-Config (Bebas Error HTTP 404)
+            </h3>
+            <p className="text-slate-400 leading-relaxed">
+              File <code className="text-sky-400 font-mono">vercel.json</code> dan Serverless Function <code className="text-sky-400 font-mono">api/index.ts</code> sudah terpasang otomatis di proyek ini. Saat di-deploy ke Vercel:
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-slate-400">
+              <li>Request <code className="text-sky-300 font-mono">/api/*</code> otomatis diteruskan ke Serverless Express.</li>
+              <li>Aplikasi memiliki <strong>Dual-Authentication Fallback</strong> otomatis sehingga login (admin / admin123) selalu berhasil mulus.</li>
+              <li>Tersedia file <code className="text-sky-300 font-mono">vercel.json</code> siap deploy di root directory.</li>
+            </ul>
+          </div>
+
+          <div className="rounded-xl bg-[#0b1229] border border-slate-800/80 overflow-hidden">
+            <div className="px-5 py-3 bg-[#070e24] border-b border-slate-800 flex items-center justify-between">
+              <span className="font-mono text-xs text-sky-400">vercel.json</span>
+              <button
+                onClick={() => copyToClipboard(vercelCode, 'vercel')}
+                className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 font-mono transition-colors"
+              >
+                {copiedCode === 'vercel' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedCode === 'vercel' ? 'Tersalin' : 'Salin vercel.json'}
+              </button>
+            </div>
+            <pre className="p-5 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed">
+              {vercelCode}
             </pre>
           </div>
         </div>

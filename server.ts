@@ -946,6 +946,11 @@ async function setupServer() {
   });
 }
 
-setupServer().catch(err => {
-  console.error('Failed to start REEV WA Gateway server:', err);
-});
+// Only launch listening server in non-serverless environments (VPS, local, Docker)
+if (!process.env.VERCEL) {
+  setupServer().catch(err => {
+    console.error('Failed to start REEV WA Gateway server:', err);
+  });
+}
+
+export default app;

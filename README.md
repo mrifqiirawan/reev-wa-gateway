@@ -43,6 +43,22 @@ REEV WA Gateway adalah solusi WhatsApp API Gateway mandiri berkinerja tinggi ber
 
 ---
 
+## ⚡ Panduan Deployment di Vercel (Cloud Hosting)
+
+Aplikasi ini telah dilengkapi dengan berkas `vercel.json` dan Serverless Function `api/index.ts` sehingga siap di-deploy langsung ke Vercel tanpa error 404:
+
+1. Upload seluruh isi proyek ini ke repositori **GitHub** Anda.
+2. Masuk ke dashboard [vercel.com](https://vercel.com) &gt; klik **"Add New Project"**.
+3. Import repositori GitHub Anda.
+4. **Framework Preset**: Pilih **Vite** (Build Command: `npm run build`, Output Directory: `dist`).
+5. Klik **"Deploy"**.
+6. Selesai! Buka URL Vercel yang diberikan. Login menggunakan kredensial default:
+   - **Username:** `admin`
+   - **Password:** `admin123`
+   *(Dapat diubah di menu Keamanan & Akun)*
+
+---
+
 ## 🌐 Panduan Deployment di VPS (Dewaweb, Ubuntu, Debian)
 
 ### Opsi A: Menggunakan PM2 (Rekomendasi)

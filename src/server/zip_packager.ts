@@ -14,6 +14,7 @@ export async function createProjectZip(): Promise<Buffer> {
     'sessions',
     'bun.lock',
     '.env',
+    'reev-wa-gateway-production.zip',
   ]);
 
   function addDirectoryToZip(currentDir: string, zipFolder: JSZip) {
