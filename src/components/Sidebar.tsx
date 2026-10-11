@@ -94,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Gateway
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 font-mono tracking-tight">Baileys Enterprise Engine</p>
+              <p className="text-[11px] text-slate-400 font-mono tracking-tight">Baileys Multi-Device</p>
             </div>
           </div>
 
@@ -168,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
               Protokol WhatsApp
             </span>
-            <span className="font-mono text-slate-300 font-medium text-[11px]">Baileys v6.7.x</span>
+            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.7.0</span>
           </div>
 
           {onLogout && (

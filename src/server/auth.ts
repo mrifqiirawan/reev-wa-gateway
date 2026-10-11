@@ -28,6 +28,10 @@ function checkPassword(password: unknown, stored: string) {
 }
 type AuthState = { username: string; passwordHash: string; sessions: Record<string, number> };
 export function installAuth(app: Express, dataDir: string) {
+  const keyFile = path.join(dataDir, 'integration_key.json');
+  const envKey = process.env.GATEWAY_API_KEY?.trim();
+  let apiKey = envKey || (fs.existsSync(keyFile) ? JSON.parse(fs.readFileSync(keyFile, 'utf8')).key : '');
+  if (!apiKey) { apiKey = 'reev_live_' + crypto.randomBytes(32).toString('hex'); atomicJson(keyFile, { key: apiKey }); }
   const file = path.join(dataDir, 'admin_auth.json');
   let state: AuthState;
   if (fs.existsSync(file)) {
@@ -62,7 +66,7 @@ export function installAuth(app: Express, dataDir: string) {
     commit(next);
     res.cookie(COOKIE, token, { ...cookieOptions, maxAge: ttl });
   };
-  app.get('/api/health', (_req, res) => res.json({ success: true, service: 'reev-backend', version: '2.6.0' }));
+  app.get('/api/health', (_req, res) => res.json({ success: true, service: 'reev-backend', version: '2.7.0' }));
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     const bridge = process.env.BACKEND_SHARED_SECRET;
@@ -91,9 +95,18 @@ export function installAuth(app: Express, dataDir: string) {
   app.use('/api', (req, res, next) => {
     const bearer = req.get('authorization')?.replace(/^Bearer /, '') || '';
     const allowedIntegration = req.method === 'POST' && ['/messages/send', '/messages/send-otp', '/messages/bulk'].includes(req.path);
-    if (allowedIntegration && process.env.GATEWAY_API_KEY && sameSecret(bearer, process.env.GATEWAY_API_KEY)) return next();
+    if (allowedIntegration && sameSecret(bearer, apiKey)) return next();
+    if (allowedIntegration && req.get('authorization')) return res.status(401).json({ success: false, error: 'API key tidak valid.' });
     if (!authenticated(req)) return res.status(401).json({ success: false, error: 'Sesi berakhir. Silakan login kembali.' });
     next();
+  });
+  app.get('/api/integration/key', (_req, res) => res.json({ success: true, apiKey, source: envKey ? 'environment' : 'generated', deviceId: 'device_primary' }));
+  app.post('/api/integration/key/rotate', (req, res) => {
+    if (!checkPassword(req.body?.currentPassword, state.passwordHash)) return res.status(403).json({ success: false, error: 'Password admin tidak sesuai.' });
+    if (envKey) return res.status(409).json({ success: false, error: 'Key dikelola .env. Ubah GATEWAY_API_KEY di server lalu restart.' });
+    const next = 'reev_live_' + crypto.randomBytes(32).toString('hex');
+    atomicJson(keyFile, { key: next }); apiKey = next;
+    res.json({ success: true, apiKey });
   });
   app.get('/api/auth/verify', (_req, res) => res.json({ success: true, user: { username: state.username, role: 'admin' } }));
   app.post('/api/auth/change-credentials', (req, res) => {

@@ -1,3 +1,4 @@
+import { copyText } from '../../services/clipboard';
 import React, { useState, useEffect } from 'react';
 import {
   Smartphone,
@@ -113,7 +114,7 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
   };
 
   const handleCopyPairingCode = (code: string) => {
-    navigator.clipboard.writeText(code);
+    void copyText(code);
     setCopiedPairing(true);
     setTimeout(() => setCopiedPairing(false), 2000);
   };
@@ -247,7 +248,7 @@ export const DeviceManagerView: React.FC<DeviceManagerViewProps> = ({
                 <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-2 border-t border-slate-800/60">
                   <span className="flex items-center gap-1">
                     <Battery className="w-3 h-3 text-slate-400" />
-                    {device.batteryLevel}%
+                    {(device.batteryLevel ?? -1) < 0 ? 'Baterai tidak tersedia' : device.batteryLevel+'%'}
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3 text-slate-400" />

@@ -75,20 +75,7 @@ export const BulkBroadcastView: React.FC<BulkBroadcastViewProps> = ({ onSuccess 
         maxDelay,
       });
 
-      // Simulate step-by-step progress visually for live feedback
-      let currentSent = 0;
-      for (let i = 0; i < contacts.length; i++) {
-        const c = contacts[i];
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        currentSent++;
-        setSentCount(currentSent);
-        setProgress(Math.round((currentSent / contacts.length) * 100));
-        setActiveContactLog((prev) => [
-          `[${new Date().toLocaleTimeString('id-ID')}] Terkirim ke +${c.phone} (${c.name}) - DELIVERED`,
-          ...prev,
-        ]);
-      }
-
+      setActiveContactLog(['Kontak masuk antrean persisten. Buka Log Pesan untuk status pengiriman sebenarnya. Jeda server 4–8 detik.']);
       onSuccess();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error broadcast';
@@ -207,7 +194,7 @@ export const BulkBroadcastView: React.FC<BulkBroadcastViewProps> = ({ onSuccess 
                     type="number"
                     min={1}
                     max={60}
-                    value={minDelay}
+                    disabled value={4}
                     onChange={(e) => setMinDelay(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
                   />
@@ -220,7 +207,7 @@ export const BulkBroadcastView: React.FC<BulkBroadcastViewProps> = ({ onSuccess 
                     type="number"
                     min={minDelay + 1}
                     max={120}
-                    value={maxDelay}
+                    disabled value={8}
                     onChange={(e) => setMaxDelay(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
                   />

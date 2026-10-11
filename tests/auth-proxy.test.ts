@@ -21,6 +21,7 @@ test('persistent auth, password rotation, revocation, storage failure, and Verce
   process.env.ADMIN_PASSWORD = 'Initial-password-123';
   process.env.COOKIE_SECURE = 'true';
   delete process.env.BACKEND_SHARED_SECRET;
+  process.env.GATEWAY_API_KEY = 'integration-secret';
   process.env.NODE_ENV = 'test';
   const makeApp = () => {
     const app = express(); app.use(express.json()); installAuth(app, dir);

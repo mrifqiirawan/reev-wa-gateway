@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { deliverWebhook } from './src/server/webhook.js';
+import { atomicJson } from './src/server/auth.js';
 import { installAuth } from './src/server/auth.js';
 import express, { Request, Response } from 'express';
 import QRCode from 'qrcode';
@@ -123,9 +125,9 @@ let fallbackConfig = {
 };
 
 let webhookConfig = {
-  url: 'https://webhook.site/reev-gateway-demo',
+  url: '',
   secretKey: 'reev_whsec_' + crypto.randomBytes(16).toString('hex'),
-  isEnabled: true,
+  isEnabled: false,
   events: {
     onMessageReceived: true,
     onMessageSent: true,
@@ -138,6 +140,33 @@ let webhookConfig = {
   lastResponseCode: 200,
   lastTestedAt: undefined as string | undefined
 };
+
+const stateFile = path.resolve(process.env.DATA_DIR || 'sessions', 'gateway_state.json');
+if (fs.existsSync(stateFile)) {
+  const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  messageLogs.push(...(saved.messageLogs || [])); inboxMessages.push(...(saved.inboxMessages || []));
+  autoResponderRules.splice(0, autoResponderRules.length, ...(saved.rules || []));
+  fallbackConfig = saved.fallback || fallbackConfig; webhookConfig = saved.webhook || webhookConfig;
+}
+function persist() { atomicJson(stateFile, {messageLogs,inboxMessages,rules:autoResponderRules,fallback:fallbackConfig,webhook:webhookConfig}); }
+async function dispatch(event: string, data: unknown, force = false, target?: string) {
+  const flags: Record<string, keyof typeof webhookConfig.events> = {'message.received':'onMessageReceived','message.sent':'onMessageSent','message.delivered':'onMessageDelivered','message.failed':'onMessageFailed','device.status':'onDeviceStatusChanged'};
+  if (!force && (!webhookConfig.isEnabled || !webhookConfig.events[flags[event]])) return {success:false, skipped:true};
+  const payload = {id:crypto.randomUUID(),event,timestamp:new Date().toISOString(),deviceId:'device_primary',data};
+  webhookConfig.lastPayload = JSON.stringify(payload); webhookConfig.lastTestedAt = payload.timestamp;
+  try { const result = await deliverWebhook(target || webhookConfig.url, webhookConfig.secretKey, payload); webhookConfig.lastResponseCode=result.statusCode; persist(); return {...result,payload}; }
+  catch(e) { webhookConfig.lastResponseCode=0; persist(); return {success:false,statusCode:0,error:String(e),payload}; }
+}
+async function sendReal(recipient: unknown, message: unknown, type: MessageLogData['type']='text', deviceId = 'device_primary') {
+  if (deviceId !== 'device_primary') throw new Error('deviceId tidak dikenal. Gunakan device_primary.');
+  let phone=String(recipient || '').replace(/[^0-9]/g,''); if(phone.startsWith('0')) phone='62'+phone.slice(1);
+  if(!/^[1-9][0-9]{7,14}$/.test(phone) || typeof message !== 'string' || !message.trim() || message.length>16000) throw new Error('Nomor/pesan tidak valid (maksimum 16000 karakter).');
+  const log: MessageLogData={id:crypto.randomUUID(),recipient:phone,content:message,type,status:'sending',timestamp:new Date().toISOString(),latencyMs:0,retryCount:0,deviceId};
+  messageLogs.unshift(log); persist();
+  try { const result=await baileysManager.sendTextMessage(phone,message); Object.assign(log,result,{id:result.messageId,status:'sent'}); persist(); void dispatch('message.sent',log); return {success:true,...result,status:'sent',recipient:phone}; }
+  catch(e) { log.status='failed'; log.errorMessage=String(e); persist(); void dispatch('message.failed',log); throw e; }
+}
+
 
 // Helper: Calculate Indonesian Greeting
 function getIndonesianGreeting(hour?: number): string {
@@ -169,7 +198,7 @@ function interpolateTemplate(template: string, senderName: string, senderNumber:
 
 // Helper: Match rule
 function findMatchingRule(text: string): { rule: AutoResponderRuleData; matchedKeyword: string } | null {
-  const cleanText = text.trim().toLowerCase();
+  const cleanText = String(text).slice(0,16000).trim().toLowerCase();
 
   const activeRules = [...autoResponderRules]
     .filter(r => r.isEnabled)
@@ -189,76 +218,28 @@ function findMatchingRule(text: string): { rule: AutoResponderRuleData; matchedK
       if (rule.matchType === 'starts_with' && cleanText.startsWith(keyword)) {
         return { rule, matchedKeyword: kw };
       }
-      if (rule.matchType === 'regex') {
-        try {
-          const rx = new RegExp(keyword, 'i');
-          if (rx.test(cleanText)) {
-            return { rule, matchedKeyword: kw };
-          }
-        } catch {}
-      }
+
     }
   }
 
   return null;
 }
 
-// Attach Live Inbound Handler to Baileys Socket Engine
-baileysManager.setIncomingMessageHandler(async ({ senderNumber, senderName, messageText }) => {
-  const matchResult = findMatchingRule(messageText);
-  let replyText = '';
-  let status: 'replied' | 'fallback_replied' | 'forwarded_webhook' = 'replied';
-  let matchedRuleId: string | undefined;
-  let matchedKeyword: string | undefined;
-
-  if (matchResult) {
-    const { rule, matchedKeyword: kw } = matchResult;
-    rule.triggerCount++;
-    rule.lastTriggered = new Date().toISOString();
-    matchedRuleId = rule.id;
-    matchedKeyword = kw;
-    replyText = interpolateTemplate(rule.replyMessage, senderName, senderNumber);
-    if (rule.actionType === 'forward_webhook') {
-      status = 'forwarded_webhook';
-    }
-  } else if (fallbackConfig.isEnabled) {
-    status = 'fallback_replied';
-    replyText = interpolateTemplate(fallbackConfig.replyMessage, senderName, senderNumber);
-  } else {
-    return null;
-  }
-
-  // Record in Inbox feed
-  const inboxItem: InboxMessageData = {
-    id: 'inbox_' + Date.now().toString(36),
-    senderNumber,
-    senderName,
-    messageText,
-    timestamp: new Date().toISOString(),
-    matchedRuleId,
-    matchedKeyword,
-    botReplyText: replyText,
-    status,
-    deviceId: 'device_primary'
-  };
-  inboxMessages.unshift(inboxItem);
-
-  // Record in outbound log
-  const replyLog: MessageLogData = {
-    id: 'reply_' + Date.now().toString(36),
-    recipient: senderNumber,
-    recipientName: senderName,
-    content: replyText,
-    type: 'auto_reply',
-    status: 'delivered',
-    timestamp: new Date().toISOString(),
-    latencyMs: 190,
-    retryCount: 0,
-    deviceId: 'device_primary'
-  };
-  messageLogs.unshift(replyLog);
-
-  return replyText;
+baileysManager.setReceiptHandler((id,status)=>{const row=messageLogs.find(l=>l.id===id);if(row && row.status!=='read'){row.status=status;persist();void dispatch('message.delivered',row);}});
+baileysManager.setStatusHandler(status=>{void dispatch('device.status',{status});if(status==='connected')void drainBulk();});
+// Incoming messages are recorded even when automatic replies are disabled.
+baileysManager.setIncomingMessageHandler(async ({senderNumber,senderName,messageText})=>{
+  const match=findMatchingRule(messageText);
+  const row: InboxMessageData={id:crypto.randomUUID(),senderNumber,senderName,messageText,timestamp:new Date().toISOString(),status:'ignored',deviceId:'device_primary'};
+  inboxMessages.unshift(row); persist(); void dispatch('message.received',row);
+  let reply='';
+  if(match) {
+    match.rule.triggerCount++; match.rule.lastTriggered=new Date().toISOString(); row.matchedRuleId=match.rule.id; row.matchedKeyword=match.matchedKeyword;
+    if(match.rule.actionType==='forward_webhook') { const result=await dispatch('message.received',row,true,match.rule.webhookUrl); if(result.success) row.status='forwarded_webhook'; persist(); return null; }
+    reply=interpolateTemplate(match.rule.replyMessage,senderName,senderNumber);
+  } else if(fallbackConfig.isEnabled) reply=interpolateTemplate(fallbackConfig.replyMessage,senderName,senderNumber);
+  if(reply) { try { if(!match&&fallbackConfig.delayMs)await new Promise(r=>setTimeout(r,fallbackConfig.delayMs)); await sendReal(senderNumber,reply,'auto_reply'); row.status=match?'replied':'fallback_replied'; row.botReplyText=reply; } catch(e) { console.error('Auto reply failed:',String(e)); } }
+  persist(); return null;
 });
 
 // ==========================================
@@ -274,8 +255,8 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.6.0',
-    engine: 'Baileys Multi-Device Official Engine',
+    version: '2.7.0',
+    engine: 'Baileys Multi-Device (unofficial)',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,
     deviceStatus: devState.status,
@@ -338,190 +319,57 @@ app.delete('/api/devices/:id', async (_req: Request, res: Response, next) => {
   } catch (err) { next(err); }
 });
 
-// 3. Outbound Message Dispatcher
-app.post('/api/messages/send', async (req: Request, res: Response) => {
-  const { recipient, message, type } = req.body;
-
-  if (!recipient || !message) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter recipient dan message wajib diisi'
-    });
-  }
-
-  const cleanPhone = String(recipient).replace(/[^0-9]/g, '');
-  if (cleanPhone.length < 8) {
-    return res.status(400).json({
-      success: false,
-      error: 'Nomor telepon tujuan tidak valid'
-    });
-  }
-
-  const devState = baileysManager.getDeviceState();
-
+// Real transport only: never claim delivery before a receipt.
+app.post('/api/messages/send', async (req,res)=>{
+  try { res.json(await sendReal(req.body.recipient,req.body.message,'text',req.body.deviceId)); }
+  catch(e) {res.status(503).json({success:false,error:String(e)});}
+});
+app.post('/api/messages/send-otp',async(req,res)=>{
+  if(!req.body.otpCode) return res.status(400).json({success:false,error:'otpCode wajib diisi.'});
+  const {recipient,otpCode,serviceName='Akun Anda',expiresInMinutes=5}=req.body;
+  try {res.json(await sendReal(recipient,`Kode verifikasi ${serviceName}: *${otpCode}*. Berlaku ${expiresInMinutes} menit. Jangan bagikan kode ini.`, 'otp'));}
+  catch(e) {res.status(503).json({success:false,error:String(e)});}
+});
+// Persist queued jobs before returning; process one message at a time.
+let bulkRunning=false;
+async function drainBulk() {
+  if(bulkRunning) return; bulkRunning=true;
   try {
-    let messageId = 'reev_' + Date.now().toString(36);
-    let latencyMs = 280;
-
-    if (devState.status === 'connected') {
-      const sendResult = await baileysManager.sendTextMessage(cleanPhone, message);
-      messageId = sendResult.messageId;
-      latencyMs = sendResult.latencyMs;
+    for(const log of messageLogs.filter(l=>l.status==='queued' && l.type==='broadcast').reverse()) {
+      log.status='sending';persist();
+      try {const result=await baileysManager.sendTextMessage(log.recipient,log.content); log.id=result.messageId;log.latencyMs=result.latencyMs;log.status='sent';void dispatch('message.sent',log);}
+      catch(e) {log.status='failed';log.errorMessage=String(e);void dispatch('message.failed',log);}
+      persist(); await new Promise(r=>setTimeout(r,4000+Math.random()*4000));
     }
-
-    const log: MessageLogData = {
-      id: messageId,
-      recipient: cleanPhone,
-      content: message,
-      type: type || 'text',
-      status: devState.status === 'connected' ? 'delivered' : 'sent',
-      timestamp: new Date().toISOString(),
-      latencyMs,
-      retryCount: 0,
-      deviceId: 'device_primary'
-    };
-
-    messageLogs.unshift(log);
-
-    res.json({
-      success: true,
-      messageId,
-      status: log.status,
-      recipient: cleanPhone,
-      latencyMs,
-      timestamp: log.timestamp,
-      note: devState.status === 'connected' ? 'Delivered via live Baileys' : 'Gateway standby'
-    });
-  } catch (sendErr: unknown) {
-    const errMsg = sendErr instanceof Error ? sendErr.message : 'Gagal mengirim pesan';
-    const failLog: MessageLogData = {
-      id: 'fail_' + Date.now().toString(36),
-      recipient: cleanPhone,
-      content: message,
-      type: type || 'text',
-      status: 'failed',
-      timestamp: new Date().toISOString(),
-      latencyMs: 120,
-      errorCode: 'DISCONNECTED',
-      errorMessage: errMsg,
-      retryCount: 0,
-      deviceId: 'device_primary'
-    };
-    messageLogs.unshift(failLog);
-
-    res.status(503).json({
-      success: false,
-      error: errMsg
-    });
+  } finally {bulkRunning=false;if(baileysManager.getDeviceState().status==='connected'&&messageLogs.some(l=>l.status==='queued'&&l.type==='broadcast'))void drainBulk();}
+}
+// An interrupted send has an uncertain outcome. Do not retry it automatically.
+for(const log of messageLogs) if(log.status==='sending') {log.status='failed';log.errorMessage='Proses terputus; periksa penerima sebelum mencoba ulang.';}
+app.post('/api/messages/bulk',(req,res)=>{
+  const {contacts,template}=req.body;
+  if(!Array.isArray(contacts)||!contacts.length||contacts.length>500||typeof template!=='string'||!template.trim()) return res.status(400).json({success:false,error:'Isi template dan 1–500 kontak.'});
+  if(baileysManager.getDeviceState().status!=='connected') return res.status(503).json({success:false,error:'Hubungkan WhatsApp dahulu.'});
+  const campaignId=crypto.randomUUID();
+  const rows: MessageLogData[]=[];
+  for(const [i,c] of contacts.entries()) {
+    let phone=String(c.phone||'').replace(/[^0-9]/g,'');if(phone.startsWith('0'))phone='62'+phone.slice(1);
+    if(!/^[1-9][0-9]{7,14}$/.test(phone)) return res.status(400).json({success:false,error:`Nomor kontak ${i+1} tidak valid.`});
+    let content=template.replace(/\{nama\}/gi,()=>String(c.name||'Pelanggan'));
+    for(const [k,v] of Object.entries(c.params||{})) content=content.split('{'+k+'}').join(String(v));
+    if(content.length>16000) return res.status(400).json({success:false,error:'Template terlalu panjang.'});
+    rows.push({id:`${campaignId}_${i}`,recipient:phone,content,type:'broadcast',status:'queued',timestamp:new Date().toISOString(),latencyMs:0,retryCount:0,deviceId:'device_primary'});
   }
+  messageLogs.unshift(...rows);persist();res.json({success:true,campaignId,totalContacts:rows.length,queuedCount:rows.length,status:'queued',delayRange:'4s - 8s'});void drainBulk();
 });
 
-// 4. Send OTP Dedicated Route
-app.post('/api/messages/send-otp', async (req: Request, res: Response) => {
-  const { recipient, otpCode, serviceName, expiresInMinutes } = req.body;
-
-  if (!recipient || !otpCode) {
-    return res.status(400).json({
-      success: false,
-      error: 'Parameter recipient dan otpCode wajib diisi'
-    });
-  }
-
-  const cleanPhone = String(recipient).replace(/[^0-9]/g, '');
-  const brand = serviceName || 'Akun Anda';
-  const duration = expiresInMinutes || 5;
-
-  const otpMessage = `*KODE VERIFIKASI KEAMANAN*\n\nKode OTP ${brand} Anda adalah:\n*${otpCode}*\n\nKode ini berlaku selama ${duration} menit. Demi keamanan akun Anda, JANGAN pernah memberikan kode ini kepada siapa pun termasuk pihak customer service.`;
-
-  const devState = baileysManager.getDeviceState();
-  let messageId = 'otp_' + Date.now().toString(36);
-  let latencyMs = 190;
-
-  try {
-    if (devState.status === 'connected') {
-      const sendResult = await baileysManager.sendTextMessage(cleanPhone, otpMessage);
-      messageId = sendResult.messageId;
-      latencyMs = sendResult.latencyMs;
-    }
-
-    const log: MessageLogData = {
-      id: messageId,
-      recipient: cleanPhone,
-      content: otpMessage,
-      type: 'otp',
-      status: 'delivered',
-      timestamp: new Date().toISOString(),
-      latencyMs,
-      retryCount: 0,
-      deviceId: 'device_primary'
-    };
-    messageLogs.unshift(log);
-
-    res.json({
-      success: true,
-      messageId,
-      status: 'delivered',
-      recipient: cleanPhone,
-      latencyMs,
-      timestamp: log.timestamp
-    });
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : 'Error sending OTP';
-    res.status(503).json({ success: false, error: errMsg });
-  }
-});
-
-// 5. Bulk Messaging Campaign Queue
-app.post('/api/messages/bulk', (req: Request, res: Response) => {
-  const { campaignName, template, contacts, minDelay = 4, maxDelay = 8 } = req.body;
-
-  if (!contacts || !Array.isArray(contacts) || contacts.length === 0) {
-    return res.status(400).json({ success: false, error: 'Daftar kontak tidak boleh kosong' });
-  }
-
-  const campaignId = 'camp_' + Date.now().toString(36);
-  let queuedCount = 0;
-
-  contacts.forEach((c: { phone: string; name?: string; params?: Record<string, string> }, index: number) => {
-    const phone = String(c.phone || '').replace(/[^0-9]/g, '');
-    if (!phone) return;
-
-    let content = template || 'Halo {nama}, promo terbaru REEV WA Gateway.';
-    content = content.replace(/\{nama\}/gi, c.name || 'Pelanggan');
-    if (c.params) {
-      Object.entries(c.params).forEach(([k, v]) => {
-        content = content.replace(new RegExp(`\\{${k}\\}`, 'gi'), String(v));
-      });
-    }
-
-    const log: MessageLogData = {
-      id: `bulk_${campaignId}_${index + 1}`,
-      recipient: phone,
-      recipientName: c.name,
-      content,
-      type: 'broadcast',
-      status: 'delivered',
-      timestamp: new Date(Date.now() - (contacts.length - index) * 2000).toISOString(),
-      latencyMs: 320,
-      retryCount: 0,
-      deviceId: 'device_primary'
-    };
-
-    messageLogs.unshift(log);
-    queuedCount++;
-  });
-
-  res.json({
-    success: true,
-    campaignId,
-    name: campaignName || 'Broadcast Campaign',
-    totalContacts: contacts.length,
-    queuedCount,
-    delayRange: `${minDelay}s - ${maxDelay}s`,
-    status: 'completed'
-  });
-});
-
+function validateRule(rule: AutoResponderRuleData) {
+  if(typeof rule.title!=='string'||!rule.title.trim()||rule.title.length>200) throw new Error('Judul aturan tidak valid.');
+  if(!['exact','contains','starts_with'].includes(rule.matchType)) throw new Error('Mode pencocokan tidak didukung.');
+  if(!Array.isArray(rule.keywords)||!rule.keywords.length||rule.keywords.length>50||rule.keywords.some(k=>typeof k!=='string'||k.length>200)) throw new Error('Kata kunci tidak valid.');
+  if(typeof rule.replyMessage!=='string'||rule.replyMessage.length>16000||typeof rule.isEnabled!=='boolean'||!Number.isFinite(rule.priority)) throw new Error('Isi aturan tidak valid.');
+  if(!['reply_text','reply_menu','forward_webhook'].includes(rule.actionType)) throw new Error('Aksi tidak didukung.');
+  if(rule.actionType==='forward_webhook' && (!rule.webhookUrl || new URL(rule.webhookUrl).protocol!=='https:')) throw new Error('Isi URL webhook HTTPS.');
+}
 // 6. Auto-Responder Rules
 app.get('/api/auto-responder/rules', (_req: Request, res: Response) => {
   res.json({
@@ -533,6 +381,7 @@ app.get('/api/auto-responder/rules', (_req: Request, res: Response) => {
 
 app.post('/api/auto-responder/rules', (req: Request, res: Response) => {
   const { title, matchType, keywords, replyMessage, actionType, webhookUrl } = req.body;
+  if(matchType==='regex') return res.status(400).json({success:false,error:'Gunakan exact, contains, atau starts_with; regex dinonaktifkan untuk mencegah server macet.'});
 
   if (!title || !keywords || !replyMessage) {
     return res.status(400).json({ success: false, error: 'Title, keywords, dan replyMessage wajib diisi' });
@@ -551,7 +400,9 @@ app.post('/api/auto-responder/rules', (req: Request, res: Response) => {
     webhookUrl: webhookUrl || undefined
   };
 
+  try {validateRule(newRule);} catch(e) {return res.status(400).json({success:false,error:String(e)});}
   autoResponderRules.push(newRule);
+  persist();
   res.json({ success: true, rule: newRule });
 });
 
@@ -562,10 +413,13 @@ app.put('/api/auto-responder/rules/:id', (req: Request, res: Response) => {
     return res.status(404).json({ success: false, error: 'Rule tidak ditemukan' });
   }
 
-  autoResponderRules[index] = {
-    ...autoResponderRules[index],
-    ...req.body
-  };
+  if(req.body.matchType==='regex') return res.status(400).json({success:false,error:'Regex tidak didukung.'});
+  const allowed=['title','matchType','keywords','replyMessage','isEnabled','priority','actionType','webhookUrl'];
+  const patch=Object.fromEntries(Object.entries(req.body).filter(([key])=>allowed.includes(key)));
+  const nextRule={...autoResponderRules[index],...patch};
+  try {validateRule(nextRule);} catch(e) {return res.status(400).json({success:false,error:String(e)});}
+  autoResponderRules[index]=nextRule;
+  persist();
 
   res.json({ success: true, rule: autoResponderRules[index] });
 });
@@ -577,17 +431,20 @@ app.delete('/api/auto-responder/rules/:id', (req: Request, res: Response) => {
     return res.status(404).json({ success: false, error: 'Rule tidak ditemukan' });
   }
   autoResponderRules.splice(index, 1);
+  persist();
   res.json({ success: true, message: 'Rule berhasil dihapus' });
 });
 
 app.post('/api/auto-responder/fallback', (req: Request, res: Response) => {
   const { isEnabled, replyMessage, delayMs } = req.body;
+  if((isEnabled!==undefined&&typeof isEnabled!=='boolean')||(replyMessage!==undefined&&(typeof replyMessage!=='string'||replyMessage.length>16000))||(delayMs!==undefined&&(!Number.isFinite(delayMs)||delayMs<0||delayMs>10000)))return res.status(400).json({success:false,error:'Fallback tidak valid.'});
   fallbackConfig = {
     ...fallbackConfig,
     ...(isEnabled !== undefined && { isEnabled }),
     ...(replyMessage !== undefined && { replyMessage }),
     ...(delayMs !== undefined && { delayMs })
   };
+  persist();
   res.json({ success: true, fallback: fallbackConfig });
 });
 
@@ -610,8 +467,7 @@ app.post('/api/auto-responder/simulate', (req: Request, res: Response) => {
 
   if (matchResult) {
     const { rule, matchedKeyword: kw } = matchResult;
-    rule.triggerCount++;
-    rule.lastTriggered = new Date().toISOString();
+
     matchedRuleId = rule.id;
     matchedKeyword = kw;
     replyText = interpolateTemplate(rule.replyMessage, name, phone);
@@ -630,34 +486,6 @@ app.post('/api/auto-responder/simulate', (req: Request, res: Response) => {
     });
   }
 
-  const inboxItem: InboxMessageData = {
-    id: 'inbox_' + Date.now().toString(36),
-    senderNumber: phone,
-    senderName: name,
-    messageText: incomingMessage,
-    timestamp: new Date().toISOString(),
-    matchedRuleId,
-    matchedKeyword,
-    botReplyText: replyText,
-    status,
-    deviceId: 'device_primary'
-  };
-  inboxMessages.unshift(inboxItem);
-
-  const replyLog: MessageLogData = {
-    id: 'reply_' + Date.now().toString(36),
-    recipient: phone,
-    recipientName: name,
-    content: replyText,
-    type: 'auto_reply',
-    status: 'delivered',
-    timestamp: new Date().toISOString(),
-    latencyMs: 180,
-    retryCount: 0,
-    deviceId: 'device_primary'
-  };
-  messageLogs.unshift(replyLog);
-
   res.json({
     success: true,
     matched: !!matchResult,
@@ -665,13 +493,13 @@ app.post('/api/auto-responder/simulate', (req: Request, res: Response) => {
     matchedKeyword,
     status,
     replyText,
-    inboxItem
+    simulation: true
   });
 });
 
 // 8. Inbox Feed
 app.get('/api/inbox', (_req: Request, res: Response) => {
-  res.json({ success: true, inbox: inboxMessages });
+  res.json({ success: true, inbox: inboxMessages.slice(0,100) });
 });
 
 // 9. Message Logs & Error Stream
@@ -689,49 +517,42 @@ app.get('/api/logs', (req: Request, res: Response) => {
   res.json({
     success: true,
     total: results.length,
-    logs: results.slice(0, Number(limit))
+    logs: results.slice(0, Math.min(500,Math.max(1,Number(limit)||50)))
   });
 });
 
-app.post('/api/logs/retry', (req: Request, res: Response) => {
-  const { id } = req.body;
-  const log = messageLogs.find(l => l.id === id);
-  if (!log) {
-    return res.status(404).json({ success: false, error: 'Log tidak ditemukan' });
-  }
-
-  log.status = 'delivered';
-  log.retryCount = (log.retryCount || 0) + 1;
-  log.errorCode = undefined;
-  log.errorMessage = undefined;
-  log.latencyMs = 280;
-
-  res.json({ success: true, message: 'Pesan berhasil dikirim ulang', log });
+app.post('/api/logs/retry',async(req,res)=>{
+  const log=messageLogs.find(l=>l.id===req.body.id);
+  if(!log) return res.status(404).json({success:false,error:'Log tidak ditemukan.'});
+  if(log.status!=='failed') return res.status(409).json({success:false,error:'Hanya pesan gagal yang dapat dicoba ulang.'});
+  try {const result=await sendReal(log.recipient,log.content,log.type);log.retryCount++;persist();res.json({...result,log});}
+  catch(e){res.status(503).json({success:false,error:String(e)});}
 });
 
 // 10. Real Analytics (Zero dummy default)
 app.get('/api/analytics', (_req: Request, res: Response) => {
-  const total = messageLogs.length;
-  const delivered = messageLogs.filter(l => l.status === 'delivered' || l.status === 'read').length;
-  const failed = messageLogs.filter(l => l.status === 'failed').length;
-  const inbound = inboxMessages.length;
+  const today = new Date().toLocaleDateString('en-CA',{timeZone:process.env.TZ || 'Asia/Makassar'});
+  const dayLogs=messageLogs.filter(l=>new Date(l.timestamp).toLocaleDateString('en-CA',{timeZone:process.env.TZ || 'Asia/Makassar'})===today);
+  const dayInbox=inboxMessages.filter(l=>new Date(l.timestamp).toLocaleDateString('en-CA',{timeZone:process.env.TZ || 'Asia/Makassar'})===today);
+  const total = dayLogs.length;
+  const delivered = dayLogs.filter(l => l.status === 'delivered' || l.status === 'read').length;
+  const failed = dayLogs.filter(l => l.status === 'failed').length;
+  const inbound = dayInbox.length;
 
-  const otpCount = messageLogs.filter(l => l.type === 'otp').length;
-  const transCount = messageLogs.filter(l => l.type === 'text').length;
-  const promoCount = messageLogs.filter(l => l.type === 'broadcast').length;
-  const botCount = messageLogs.filter(l => l.type === 'auto_reply').length;
+  const otpCount = dayLogs.filter(l => l.type === 'otp').length;
+  const transCount = dayLogs.filter(l => l.type === 'text').length;
+  const promoCount = dayLogs.filter(l => l.type === 'broadcast').length;
+  const botCount = dayLogs.filter(l => l.type === 'auto_reply').length;
 
   const successRate = total > 0 ? Number(((delivered / total) * 100).toFixed(1)) : 100.0;
-  const avgLatency = total > 0 ? Math.round(messageLogs.reduce((acc, l) => acc + (l.latencyMs || 250), 0) / total) : 250;
+  const avgLatency = total > 0 ? Math.round(dayLogs.reduce((acc, l) => acc + (l.latencyMs || 250), 0) / total) : 250;
 
-  const hourlyData = [
-    { hour: '00:00', sent: 0, delivered: 0, failed: 0, inbound: 0 },
-    { hour: '04:00', sent: 0, delivered: 0, failed: 0, inbound: 0 },
-    { hour: '08:00', sent: total > 0 ? Math.round(total * 0.2) : 0, delivered: total > 0 ? Math.round(total * 0.2) : 0, failed: 0, inbound: inbound > 0 ? Math.round(inbound * 0.2) : 0 },
-    { hour: '12:00', sent: total > 0 ? Math.round(total * 0.4) : 0, delivered: total > 0 ? Math.round(total * 0.4) : 0, failed: 0, inbound: inbound > 0 ? Math.round(inbound * 0.3) : 0 },
-    { hour: '16:00', sent: total > 0 ? Math.round(total * 0.3) : 0, delivered: total > 0 ? Math.round(total * 0.3) : 0, failed: 0, inbound: inbound > 0 ? Math.round(inbound * 0.4) : 0 },
-    { hour: '20:00', sent: total > 0 ? Math.round(total * 0.1) : 0, delivered: total > 0 ? Math.round(total * 0.1) : 0, failed: 0, inbound: inbound > 0 ? Math.round(inbound * 0.1) : 0 },
-  ];
+  const hourlyData = Array.from({length:6},(_,i)=>{
+    const hour=i*4;
+    const bucket=(t:string)=>Math.floor(Number(new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',hourCycle:'h23',timeZone:process.env.TZ || 'Asia/Makassar'}))/4)===i;
+    const logs=dayLogs.filter(l=>bucket(l.timestamp));
+    return {hour:String(hour).padStart(2,'0')+':00',sent:logs.filter(l=>['sent','delivered','read'].includes(l.status)).length,delivered:logs.filter(l=>['delivered','read'].includes(l.status)).length,failed:logs.filter(l=>l.status==='failed').length,inbound:dayInbox.filter(l=>bucket(l.timestamp)).length};
+  });
 
   res.json({
     success: true,
@@ -756,37 +577,20 @@ app.get('/api/webhook/config', (_req: Request, res: Response) => {
   res.json({ success: true, webhook: webhookConfig });
 });
 
-app.post('/api/webhook/config', (req: Request, res: Response) => {
-  webhookConfig = { ...webhookConfig, ...req.body };
-  res.json({ success: true, webhook: webhookConfig });
+app.post('/api/webhook/config',(req,res)=>{
+  const {url,secretKey,isEnabled,events}=req.body;
+  try {
+    if(typeof url!=='string'||typeof secretKey!=='string'||typeof isEnabled!=='boolean') throw new Error('Konfigurasi tidak valid.');
+    if(url) {const u=new URL(url);if(u.protocol!=='https:'||u.username||u.password)throw new Error('Gunakan URL HTTPS publik.');}
+    if(isEnabled && (!url || secretKey.length<16))throw new Error('Webhook aktif memerlukan URL dan secret minimal 16 karakter.');
+    const nextEvents={...webhookConfig.events};
+    for(const k of Object.keys(nextEvents) as (keyof typeof nextEvents)[]) {if(typeof events?.[k]!=='boolean')throw new Error('Event harus boolean.');nextEvents[k]=events[k];}
+    webhookConfig={...webhookConfig,url,secretKey,isEnabled,events:nextEvents};persist();res.json({success:true,webhook:webhookConfig});
+  }catch(e){res.status(400).json({success:false,error:String(e)});}
 });
-
-app.post('/api/webhook/test', (req: Request, res: Response) => {
-  const { event = 'message.received', testNumber = '6281234567890' } = req.body;
-  const testPayload = {
-    event,
-    timestamp: new Date().toISOString(),
-    deviceId: 'device_primary',
-    data: {
-      messageId: 'test_' + Date.now(),
-      sender: testNumber,
-      senderName: 'Uji Coba Webhook REEV',
-      text: 'Halo, ini adalah pengujian webhook real-time!',
-      signature: crypto.createHmac('sha256', webhookConfig.secretKey).update(testNumber).digest('hex')
-    }
-  };
-
-  webhookConfig.lastPayload = JSON.stringify(testPayload, null, 2);
-  webhookConfig.lastTestedAt = new Date().toISOString();
-  webhookConfig.lastResponseCode = 200;
-
-  res.json({
-    success: true,
-    message: 'Webhook payload berhasil di-dispatch ke target endpoint',
-    url: webhookConfig.url,
-    statusCode: 200,
-    payload: testPayload
-  });
+app.post('/api/webhook/test',async(req,res)=>{
+  const result=await dispatch('webhook.test',{text:'Uji koneksi REEV WA Gateway'},true);
+  res.status(result.success?200:502).json(result);
 });
 
 // 12. Full Project ZIP Export Route
@@ -806,15 +610,8 @@ app.get('/api/export/project-zip', async (_req: Request, res: Response) => {
 app.get('/api/export/:type', (req: Request, res: Response) => {
   const { type } = req.params;
 
-  if (type === 'gas') {
-    res.setHeader('Content-Type', 'text/javascript');
-    res.setHeader('Content-Disposition', 'attachment; filename="REEV_WA_GoogleAppsScript.js"');
-    return res.sendFile(path.resolve(process.cwd(), 'src/server/REEV_GAS_Template.js'), (err) => {
-      if (err) {
-        res.send(`// REEV GAS Template script\nvar REEV_CONFIG = { GATEWAY_URL: "https://your-domain.com", API_KEY: "reev_live_sec_prod_key" };\n`);
-      }
-    });
-  }
+  const exports: Record<string,string>={gas:'sdk/REEV_GAS.gs',node:'sdk/reev-client.mjs',docker:'docker-compose.yml'};
+  if(exports[type]) return res.download(path.resolve(__dirname,exports[type]));
 
   res.status(404).json({ error: 'Unknown export type' });
 });

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { copyText } from '../../services/clipboard';
+import React, { useState, useEffect } from 'react';
 import {
   Terminal,
   Key,
@@ -24,7 +25,18 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
   webhookConfig,
   onRefresh,
 }) => {
-  const [apiKey] = useState('GATEWAY_API_KEY_DARI_ENV_BACKEND');
+  const [apiKey, setApiKey] = useState('');
+  const [keyError, setKeyError] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [keySource, setKeySource] = useState('');
+  const [httpStatus, setHttpStatus] = useState(0);
+  useEffect(() => { fetch('/api/integration/key').then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); setApiKey(d.apiKey); setKeySource(d.source); }).catch(e => setKeyError(e.message)); }, []);
+  const [rotationPassword,setRotationPassword]=useState('');
+  const rotateKey = async () => {
+    if (!window.confirm('Rotasi membatalkan key lama. Perbarui Script Properties semua integrasi setelahnya. Lanjutkan?')) return;
+    const currentPassword = rotationPassword; if (!currentPassword) {setKeyError('Isi password admin untuk rotasi.');return;}
+    try { const r = await fetch('/api/integration/key/rotate', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword})}); const d=await r.json(); if(!r.ok) throw new Error(d.error); setApiKey(d.apiKey); setRotationPassword(''); setKeyError(''); } catch(e) { setKeyError(String(e)); }
+  };
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
 
@@ -45,8 +57,8 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
   const [executing, setExecuting] = useState(false);
 
   // Webhook Form
-  const [whUrl, setWhUrl] = useState(webhookConfig?.url || 'https://webhook.site/reev-gateway-demo');
-  const [whSecret, setWhSecret] = useState(webhookConfig?.secretKey || 'reev_whsec_9918274');
+  const [whUrl, setWhUrl] = useState(webhookConfig?.url || '');
+  const [whSecret, setWhSecret] = useState(webhookConfig?.secretKey || '');
   const [whEvents, setWhEvents] = useState(
     webhookConfig?.events || {
       onMessageReceived: true,
@@ -56,14 +68,13 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
       onDeviceStatusChanged: true,
     }
   );
+  const [webhookLoaded,setWebhookLoaded]=useState(!!webhookConfig);
+  useEffect(()=>{if(webhookConfig&&!webhookLoaded){setWhUrl(webhookConfig.url||'');setWhSecret(webhookConfig.secretKey||'');setWhEvents(webhookConfig.events);setWhEnabled(webhookConfig.isEnabled);setWebhookLoaded(true);}},[webhookConfig,webhookLoaded]);
+  const [whEnabled, setWhEnabled] = useState(webhookConfig?.isEnabled || false);
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [whResult, setWhResult] = useState<Record<string, unknown> | null>(null);
 
-  const handleCopyKey = () => {
-    navigator.clipboard.writeText(apiKey);
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 2000);
-  };
+  const handleCopyKey = async () => { if(apiKey) setCopiedKey(await copyText(apiKey)); };
 
   const handleExecuteApi = async () => {
     setExecuting(true);
@@ -75,9 +86,11 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(endpoint.startsWith('/api/messages/') ? {Authorization:'Bearer '+apiKey} : {}),
         },
         body: JSON.stringify(parsed),
       });
+      setHttpStatus(res.status);
       const data = await res.json();
       setRespData(JSON.stringify(data, null, 2));
       onRefresh();
@@ -89,9 +102,15 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
     }
   };
 
+  const saveWebhook = async () => {
+    const r = await apiService.updateWebhookConfig({url:whUrl, secretKey:whSecret, isEnabled:whEnabled, events:whEvents});
+    return r;
+  };
+  const handleSaveWebhook = async () => { try { await saveWebhook(); setWhResult({success:true,message:'Pengaturan tersimpan.'}); onRefresh(); } catch(e) {setWhResult({success:false,error:String(e)});} };
   const handleTestWebhook = async () => {
     setTestingWebhook(true);
     try {
+      await saveWebhook();
       const res = await apiService.testWebhook({
         event: 'message.received',
         testNumber: '6281234567890',
@@ -106,16 +125,12 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
     }
   };
 
-  const sampleCurl = `curl -X POST https://your-domain.com/api/messages/send \\
+  const sampleCurl = `curl -X POST ${window.location.origin}${endpoint} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKey}" \\
-  -d '${reqBody.replace(/\n/g, '').replace(/\s+/g, ' ')}'`;
+  -d '${reqBody.replace(/'/g, "'\"'\"'")}'`;
 
-  const handleCopyCurl = () => {
-    navigator.clipboard.writeText(sampleCurl);
-    setCopiedCurl(true);
-    setTimeout(() => setCopiedCurl(false), 2000);
-  };
+  const handleCopyCurl = async () => setCopiedCurl(await copyText(sampleCurl));
 
   return (
     <div className="space-y-6">
@@ -138,12 +153,12 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
             Live Secret API Key
           </span>
           <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded">
-            PRODUKSI AKTIF
+            {apiKey ? 'KEY TERSEDIA' : 'MEMUAT'}
           </span>
         </div>
 
         <div className="p-3 bg-[#020618] border border-slate-800 rounded-lg flex items-center justify-between gap-3">
-          <span className="font-mono text-xs text-sky-300 truncate">{apiKey}</span>
+          <span className="font-mono text-xs text-sky-300 truncate">{showKey ? apiKey : '••••••••••••••••••••••••'}</span>
           <button
             onClick={handleCopyKey}
             className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 font-mono transition-colors shrink-0"
@@ -158,6 +173,7 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
         </p>
       </div>
 
+      <div className="text-xs text-slate-300 flex flex-wrap gap-3"><button onClick={() => setShowKey(!showKey)}>{showKey ? 'Sembunyikan' : 'Tampilkan'} key</button><input type="password" aria-label="Password admin untuk rotasi" autoComplete="current-password" placeholder="Password admin untuk rotasi" value={rotationPassword} onChange={e=>setRotationPassword(e.target.value)} className="bg-slate-900 p-2 rounded"/><button onClick={rotateKey}>Rotasi key</button><span>Sumber: {keySource}</span><span role="alert">{keyError}</span></div>
       {/* Two Column Grid: REST API Playground & Webhook Configuration */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: REST API Console */}
@@ -245,7 +261,7 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
           {/* Response Box */}
           {respData && (
             <div className="space-y-1.5 pt-2">
-              <span className="text-[11px] font-mono text-slate-400 block">HTTP 200 Response:</span>
+              <span className="text-[11px] font-mono text-slate-400 block">HTTP {httpStatus} Response:</span>
               <pre className="p-3 bg-[#020618] border border-slate-800 rounded-lg text-xs font-mono text-emerald-400 overflow-x-auto">
                 {respData}
               </pre>
@@ -290,12 +306,15 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
             />
           </div>
 
+          <label className="text-slate-300 text-xs"><input type="checkbox" checked={whEnabled} onChange={e=>setWhEnabled(e.target.checked)}/> Aktifkan webhook</label>
           {/* Event Triggers */}
           <div className="space-y-2 pt-1">
             <span className="text-xs font-semibold text-slate-300 block">
               Event Trigger yang Diteruskan:
             </span>
             <div className="space-y-2 text-xs">
+              <label className="flex items-center gap-2 text-slate-300"><input type="checkbox" checked={whEvents.onMessageSent} onChange={e=>setWhEvents({...whEvents,onMessageSent:e.target.checked})}/>message.sent</label>
+              <label className="flex items-center gap-2 text-slate-300"><input type="checkbox" checked={whEvents.onDeviceStatusChanged} onChange={e=>setWhEvents({...whEvents,onDeviceStatusChanged:e.target.checked})}/>device.status</label>
               <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
@@ -327,6 +346,7 @@ export const ApiPlaygroundView: React.FC<ApiPlaygroundViewProps> = ({
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
+            <button onClick={handleSaveWebhook} className="text-sky-300 text-xs">Simpan Pengaturan</button>
             <button
               onClick={handleTestWebhook}
               disabled={testingWebhook}

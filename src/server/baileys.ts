@@ -54,6 +54,10 @@ export class BaileysManager {
   private connectionTimer?: ReturnType<typeof setTimeout>;
   private retryCount = 0;
   private lastError?: string;
+  private receiptHandler?: (id:string,status:'delivered'|'read')=>void;
+  private statusHandler?: (status:string)=>void;
+  public setReceiptHandler(fn:(id:string,status:'delivered'|'read')=>void) {this.receiptHandler=fn;}
+  public setStatusHandler(fn:(status:string)=>void) {this.statusHandler=fn;}
 
   private clearTimers() {
     clearTimeout(this.reconnectTimer);
@@ -65,6 +69,7 @@ export class BaileysManager {
     this.socket?.ev.removeAllListeners('connection.update');
     this.socket?.ev.removeAllListeners('messages.upsert');
     this.socket?.ev.removeAllListeners('creds.update');
+    this.socket?.ev.removeAllListeners('messages.update');
     this.socket?.end(new Error('Local connection stopped'));
     this.socket = null;
     this.isConnecting = false;
@@ -175,8 +180,13 @@ export class BaileysManager {
           this.connectedName = this.socket?.user?.name || 'REEV Production Bot';
           console.log(`✅ Baileys Connected successfully! Phone: ${this.connectedPhone}`);
         }
+        this.statusHandler?.(this.status);
       });
 
+      this.socket.ev.on('messages.update', updates=>{
+        if(generation!==this.generation)return;
+        for(const {key,update} of updates) if(key.id && update.status && update.status>=3) this.receiptHandler?.(key.id,update.status>=4?'read':'delivered');
+      });
       // Handle Incoming Messages
       this.socket.ev.on('messages.upsert', async (chatUpdate) => {
         if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
@@ -186,6 +196,7 @@ export class BaileysManager {
           if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') continue;
 
           const remoteJid = msg.key.remoteJid || '';
+          if(!remoteJid.endsWith('@s.whatsapp.net')) continue; // Groups/LID require explicit identity resolution.
           const senderNumber = remoteJid.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
           const senderName = msg.pushName || 'Pelanggan';
 
@@ -198,7 +209,7 @@ export class BaileysManager {
 
           if (!messageText.trim()) continue;
 
-          console.log(`📩 Incoming WA from +${senderNumber} (${senderName}): "${messageText}"`);
+
 
           if (this.incomingMessageHandler) {
             try {
@@ -256,10 +267,11 @@ export class BaileysManager {
 
     if (this.socket && this.status === 'connected') {
       const result = await this.socket.sendMessage(jid, { text: message });
+      if(!result?.key?.id) throw new Error('WhatsApp tidak mengembalikan ID pesan; hasil belum pasti.');
       const latencyMs = Date.now() - start;
       return {
-        messageId: result?.key?.id || 'baileys_' + Date.now(),
-        latencyMs: Math.max(latencyMs, 180),
+        messageId: result?.key?.id || '',
+        latencyMs,
       };
     } else {
       // If socket is not yet paired, throw informative error
@@ -288,7 +300,7 @@ export class BaileysManager {
       name: this.connectedName || 'REEV Production Bot',
       phone: this.connectedPhone ? `+${this.connectedPhone}` : '',
       status: this.status,
-      batteryLevel: 98,
+      batteryLevel: -1,
       qrCode: this.qrDataUrl || undefined,
       lastError: this.lastError,
       pairingCode: this.pairingCode || undefined,
