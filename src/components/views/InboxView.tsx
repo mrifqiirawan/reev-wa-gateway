@@ -42,7 +42,7 @@ export const InboxView: React.FC<InboxViewProps> = ({ inbox, onRefresh }) => {
             Pesan Masuk (Real-time Inbound Feed)
           </h2>
           <p className="text-xs text-slate-400">
-            Seluruh pesan WhatsApp yang masuk ke nomor terhubung terekam di sini beserta respon otomatis yang dikirimkan.
+            Pesan pribadi baru dan sinkronisasi yang diterima gateway. Diperbarui setiap 10 detik; grup dan status tidak ditampilkan.
           </p>
         </div>
 
@@ -80,6 +80,7 @@ export const InboxView: React.FC<InboxViewProps> = ({ inbox, onRefresh }) => {
             className="bg-[#020618] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
           >
             <option value="all">Semua Percakapan ({inbox.length})</option>
+            <option value="ignored">Tercatat tanpa balasan</option>
             <option value="replied">Terjawab Aturan Kata Kunci</option>
             <option value="fallback_replied">Terjawab Pesan Fallback</option>
             <option value="forwarded_webhook">Forwarded Webhook</option>
@@ -105,7 +106,7 @@ export const InboxView: React.FC<InboxViewProps> = ({ inbox, onRefresh }) => {
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       {item.senderName}
                       <span className="font-mono text-xs text-slate-400 font-normal">
-                        (+{item.senderNumber})
+                        {item.senderNumber ? `(+${item.senderNumber})` : `ID WhatsApp: ${item.remoteJid || 'belum tersedia'}`} 
                       </span>
                     </h3>
                   </div>
@@ -129,8 +130,9 @@ export const InboxView: React.FC<InboxViewProps> = ({ inbox, onRefresh }) => {
                       hour: '2-digit',
                       minute: '2-digit',
                       second: '2-digit',
+                      timeZone: 'Asia/Makassar',
                     })}{' '}
-                    WIB
+                    WITA
                   </div>
                 </div>
               </div>

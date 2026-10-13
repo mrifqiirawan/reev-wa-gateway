@@ -386,7 +386,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-white">{inbox.senderName}</span>
-                      <span className="font-mono text-[11px] text-slate-400">+{inbox.senderNumber}</span>
+                      <span className="font-mono text-[11px] text-slate-400">{inbox.senderNumber ? `+${inbox.senderNumber}` : `ID WhatsApp: ${inbox.remoteJid || 'belum tersedia'}`}</span>
                     </div>
                     <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 rounded">
                       Key: {inbox.matchedKeyword || 'Fallback'}

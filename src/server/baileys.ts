@@ -3,6 +3,9 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   Browsers,
+  generateMessageIDV2,
+  normalizeMessageContent,
+  jidNormalizedUser,
   type WASocket,
   type ConnectionState,
 } from '@whiskeysockets/baileys';
@@ -32,6 +35,9 @@ export interface BaileysDeviceState {
 }
 
 export type IncomingMessageHandler = (msg: {
+  messageId: string;
+  timestamp: string;
+  allowAutoReply: boolean;
   senderNumber: string;
   senderName: string;
   messageText: string;
@@ -60,6 +66,8 @@ export class BaileysManager {
   private retryCount = 0;
   private lastError?: string;
   private receiptHandler?: (id:string,status:'delivered'|'read')=>void;
+  private outgoingMessageLookup?: (id: string) => string | undefined;
+  public setOutgoingMessageLookup(fn: (id: string) => string | undefined) { this.outgoingMessageLookup = fn; }
   private statusHandler?: (status:string)=>void;
   public setReceiptHandler(fn:(id:string,status:'delivered'|'read')=>void) {this.receiptHandler=fn;}
   public setStatusHandler(fn:(status:string)=>void) {this.statusHandler=fn;}
@@ -75,6 +83,7 @@ export class BaileysManager {
     this.socket?.ev.removeAllListeners('messages.upsert');
     this.socket?.ev.removeAllListeners('creds.update');
     this.socket?.ev.removeAllListeners('messages.update');
+    this.socket?.ev.removeAllListeners('message-receipt.update');
     if (closeTransport) this.socket?.end(new Error('Local connection stopped'));
     this.socket = null;
     this.isConnecting = false;
@@ -136,6 +145,10 @@ export class BaileysManager {
         printQRInTerminal: false,
         browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
+        getMessage: async key => {
+          const text = key.id && key.fromMe !== false ? this.outgoingMessageLookup?.(key.id) : undefined;
+          return text ? { conversation: text } : undefined;
+        },
         markOnlineOnConnect: true,
       });
 
@@ -208,50 +221,60 @@ export class BaileysManager {
         this.statusHandler?.(this.status);
       });
 
-      this.socket.ev.on('messages.update', updates=>{
-        if(generation!==this.generation)return;
-        for(const {key,update} of updates) if(key.id && update.status && update.status>=3) this.receiptHandler?.(key.id,update.status>=4?'read':'delivered');
+      this.socket.ev.on('messages.update', updates => {
+        if (generation !== this.generation) return;
+        for (const { key, update } of updates) {
+          if (key.fromMe === false || !key.id) continue;
+          if (update.status === 3) this.receiptHandler?.(key.id, 'delivered');
+          if (update.status === 4 || update.status === 5) this.receiptHandler?.(key.id, 'read');
+        }
       });
-      // Handle Incoming Messages
-      this.socket.ev.on('messages.upsert', async (chatUpdate) => {
-        if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
-
-        for (const msg of chatUpdate.messages) {
-          // Ignore status broadcast or our own outgoing messages
-          if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') continue;
-
+      this.socket.ev.on('message-receipt.update', updates => {
+        if (generation !== this.generation) return;
+        for (const { key, receipt } of updates) {
+          if (key.fromMe === false || !key.id) continue;
+          if (receipt.readTimestamp || receipt.playedTimestamp) this.receiptHandler?.(key.id, 'read');
+          else if (receipt.receiptTimestamp) this.receiptHandler?.(key.id, 'delivered');
+        }
+      });
+      this.socket.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (generation !== this.generation) return;
+        const socket = this.socket;
+        for (const msg of messages || []) {
+          if (generation !== this.generation) return;
+          if (!msg.message || msg.key.fromMe || !msg.key.id) continue;
           const remoteJid = msg.key.remoteJid || '';
-          if(!remoteJid.endsWith('@s.whatsapp.net')) continue; // Groups/LID require explicit identity resolution.
-          const senderNumber = remoteJid.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
-          const senderName = msg.pushName || 'Pelanggan';
-
-          // Extract text
-          const messageText =
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            '';
-
-          if (!messageText.trim()) continue;
-
-
-
-          if (this.incomingMessageHandler) {
-            try {
-              const replyText = await this.incomingMessageHandler({
-                senderNumber,
-                senderName,
-                messageText,
-                remoteJid,
-              });
-
-              if (replyText && this.socket) {
-                await this.socket.sendMessage(remoteJid, { text: replyText });
-                console.log(`🤖 Auto-replied to +${senderNumber}: "${replyText.slice(0, 50)}..."`);
-              }
-            } catch (handleErr) {
-              console.error('Error handling incoming auto-responder:', handleErr);
+          // Personal chats support both phone-number JIDs and privacy LIDs.
+          if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) continue;
+          try {
+            let phoneJid = remoteJid.endsWith('@s.whatsapp.net') ? remoteJid : msg.key.remoteJidAlt;
+            if (!phoneJid?.endsWith('@s.whatsapp.net')) {
+              try { phoneJid = await socket?.signalRepository?.lidMapping?.getPNForLID(remoteJid) || undefined; }
+              catch { phoneJid = undefined; } // Keep the original LID if a mapping is unavailable.
             }
+            if (generation !== this.generation) return;
+            const senderNumber = phoneJid?.endsWith('@s.whatsapp.net') ? jidNormalizedUser(phoneJid).split('@')[0] : '';
+            const content = normalizeMessageContent(msg.message);
+            if (!content) continue;
+            const text = content.conversation || content.extendedTextMessage?.text ||
+              content.imageMessage?.caption || content.videoMessage?.caption ||
+              content.documentMessage?.caption || content.buttonsResponseMessage?.selectedDisplayText ||
+              content.listResponseMessage?.singleSelectReply?.selectedRowId || '';
+            const mediaLabel = content.imageMessage ? '[Gambar]' : content.videoMessage ? '[Video]' :
+              content.audioMessage ? '[Audio]' : content.documentMessage ? '[Dokumen]' :
+              content.stickerMessage ? '[Stiker]' : content.contactMessage || content.contactsArrayMessage ? '[Kontak]' :
+              content.locationMessage || content.liveLocationMessage ? '[Lokasi]' : '';
+            const messageText = text.trim() ? text : mediaLabel;
+            if (!messageText) continue; // Ignore protocol, reaction and other control messages.
+            const seconds = Number(msg.messageTimestamp);
+            const timestamp = Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : new Date().toISOString();
+            const replyText = await this.incomingMessageHandler?.({
+              messageId: msg.key.id, timestamp, allowAutoReply: type === 'notify' && !!text.trim(),
+              senderNumber, senderName: msg.pushName || 'Pengirim WhatsApp', messageText, remoteJid,
+            });
+            if (replyText && generation === this.generation) await socket?.sendMessage(remoteJid, { text: replyText });
+          } catch (err) {
+            console.error('Gagal memproses pesan masuk:', err instanceof Error ? err.message : 'unknown error');
           }
         }
       });
@@ -285,13 +308,17 @@ export class BaileysManager {
     }
   }
 
-  public async sendTextMessage(recipient: string, message: string): Promise<{ messageId: string; latencyMs: number }> {
+  public async sendTextMessage(recipient: string, message: string, onMessageId?: (id: string) => void, remoteJid?: string): Promise<{ messageId: string; latencyMs: number }> {
     const cleanPhone = recipient.replace(/[^0-9]/g, '');
-    const jid = `${cleanPhone}@s.whatsapp.net`;
+    const jid = remoteJid ? jidNormalizedUser(remoteJid) : `${cleanPhone}@s.whatsapp.net`;
+    if (!/^[0-9]+@(s\.whatsapp\.net|lid)$/.test(jid)) throw new Error('Identitas tujuan tidak valid');
     const start = Date.now();
 
     if (this.socket && this.status === 'connected') {
-      const result = await this.socket.sendMessage(jid, { text: message });
+      const messageId = generateMessageIDV2(this.socket.user?.id);
+      // Persist the provider ID before sendMessage can emit a receipt.
+      onMessageId?.(messageId);
+      const result = await this.socket.sendMessage(jid, { text: message }, { messageId });
       if(!result?.key?.id) throw new Error('WhatsApp tidak mengembalikan ID pesan; hasil belum pasti.');
       const latencyMs = Date.now() - start;
       return {

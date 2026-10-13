@@ -73,7 +73,7 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
             Monitoring Log Error & Riwayat Pengiriman
           </h2>
           <p className="text-xs text-slate-400">
-            Audit trail setiap pengiriman pesan keluar dengan diagnostik kode error WhatsApp resmi.
+            SENT: proses kirim selesai, belum ada bukti penerimaan. DELIVERED: receipt diterima. READ: receipt baca diterima. Latensi adalah waktu proses kirim, bukan waktu sampai.
           </p>
         </div>
 

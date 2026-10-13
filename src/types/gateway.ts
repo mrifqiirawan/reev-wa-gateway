@@ -34,6 +34,7 @@ export interface MessageLog {
 }
 
 export interface InboxMessage {
+  remoteJid?: string;
   id: string;
   senderNumber: string;
   senderName: string;

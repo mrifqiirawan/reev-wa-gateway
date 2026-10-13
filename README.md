@@ -1,6 +1,8 @@
-# REEV WA Gateway v2.7.1
+# REEV WA Gateway v2.7.2
 
 Backend Node.js persisten + dashboard React untuk satu sesi WhatsApp Baileys.
+
+**Pembaruan inbox/status dan panduan GitHub/VM: baca [PANDUAN_UPDATE_v2.7.2.md](PANDUAN_UPDATE_v2.7.2.md).**
 
 **Perbaikan QR/sesi: baca [UPGRADE_v2.7.1.md](UPGRADE_v2.7.1.md).**
 
