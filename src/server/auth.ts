@@ -66,7 +66,7 @@ export function installAuth(app: Express, dataDir: string) {
     commit(next);
     res.cookie(COOKIE, token, { ...cookieOptions, maxAge: ttl });
   };
-  app.get('/api/health', (_req, res) => res.json({ success: true, service: 'reev-backend', version: '2.7.2' }));
+  app.get('/api/health', (_req, res) => res.json({ success: true, service: 'reev-backend', version: '2.7.3' }));
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     const bridge = process.env.BACKEND_SHARED_SECRET;

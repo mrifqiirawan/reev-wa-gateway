@@ -8,7 +8,7 @@ import {
   AlertOctagon,
   Clock,
   Download,
-  Filter
+  Filter, Trash2
 } from 'lucide-react';
 import { MessageLog } from '../../types/gateway';
 import { apiService } from '../../services/api';
@@ -24,13 +24,30 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
   const [typeFilter, setTypeFilter] = useState('all');
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const handleDelete = async (rows: MessageLog[]) => {
+    const eligible = rows.filter(row => !['queued', 'sending'].includes(row.status));
+    if (!eligible.length) { setNotice('Tidak ada log yang dapat dihapus.'); return; }
+    if (!window.confirm(`Hapus ${eligible.length} log yang ditampilkan? Pesan di WhatsApp tidak ditarik. Statistik berubah dan bahan retry/dekripsi untuk log ini ikut dihapus. Ekspor dahulu bila diperlukan.`)) return;
+    setBusy(true); setNotice('');
+    try { const result = await apiService.deleteLogs(eligible.map(row => row.id)); setNotice(`${result.deleted} log dihapus.`); onRefresh(); }
+    catch (err) { setNotice(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  };
+  const handleCheck = async (recipient: string) => {
+    setBusy(true); setNotice('Memeriksa nomor...');
+    try { const result = await apiService.checkRecipient(recipient); setNotice(`${recipient}: ${result.exists ? 'terdaftar WhatsApp; ini bukan bukti pesan sudah diterima.' : 'tidak ditemukan sebagai nomor WhatsApp.'}`); }
+    catch (err) { setNotice(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  };
   const handleRetry = async (id: string) => {
     setRetryingId(id);
     try {
       await apiService.retryLog(id);
       onRefresh();
     } catch (err) {
-      console.error(err);
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setRetryingId(null);
     }
@@ -95,6 +112,11 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
         </div>
       </div>
 
+      {notice && <div role="status" className="p-3 text-sm text-sky-200 border border-slate-700 rounded-lg">{notice}</div>}
+      <div className="flex flex-wrap gap-3 items-center text-xs text-slate-400">
+        <button disabled={busy || !filteredLogs.length} onClick={() => handleDelete(filteredLogs)} className="px-3 py-2 rounded border border-rose-500/40 text-rose-300 disabled:opacity-40">Hapus log hasil filter ({filteredLogs.filter(row => !['queued','sending'].includes(row.status)).length})</button>
+        <span>Hanya log yang dimuat di halaman ini. Antrean/pengiriman aktif dilindungi.</span>
+      </div>
       {/* Error Alert Box if any failures */}
       {failedCount > 0 && (
         <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/30 flex items-center justify-between gap-3 text-xs">
@@ -145,7 +167,7 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
               <option value="failed">Gagal (FAILED)</option>
               <option value="delivered">Terkirim (DELIVERED)</option>
               <option value="read">Dibaca (READ)</option>
-              <option value="sent">Terkirim ke Server</option>
+              <option value="sent">Belum terkonfirmasi (SENT)</option>
             </select>
           </div>
 
@@ -226,9 +248,10 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
                           {log.status.toUpperCase()}
                         </span>
                       </div>
-                      {log.errorCode && (
+                      {log.status === 'sent' && <div className="text-[10px] text-amber-300 mt-1">{Date.now() - new Date(log.timestamp).getTime() > 300000 ? 'Lebih dari 5 menit: belum ada konfirmasi penerimaan.' : 'Menunggu konfirmasi penerimaan.'}</div>}
+                      {log.errorMessage && (
                         <div className="text-[10px] font-mono text-rose-400 mt-1">
-                          {log.errorCode}: {log.errorMessage}
+                          {log.errorCode ? `${log.errorCode}: ` : ''}{log.errorMessage}
                         </div>
                       )}
                     </td>
@@ -249,6 +272,8 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
 
                     {/* Action */}
                     <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                      <button disabled={busy} onClick={() => handleCheck(log.recipient)} className="px-2 py-1 text-sky-300">Cek nomor</button>
+                      <button aria-label={`Hapus log ${log.id}`} title="Hapus log" disabled={busy || ['queued','sending'].includes(log.status)} onClick={() => handleDelete([log])} className="px-2 py-1 text-rose-300 disabled:opacity-30"><Trash2 className="w-4 h-4" /></button>
                       {isFailed ? (
                         <button
                           onClick={() => handleRetry(log.id)}
@@ -261,7 +286,7 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({ logs, onRefresh })
                           Retry
                         </button>
                       ) : (
-                        <span className="text-[11px] text-slate-600 font-mono">OK</span>
+                        <span className="text-[11px] text-slate-500 font-mono">{isSuccess ? 'OK' : 'Menunggu'}</span>
                       )}
                     </td>
                   </tr>

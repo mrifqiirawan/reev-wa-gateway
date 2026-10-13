@@ -1,3 +1,7 @@
+# v2.7.3 — NACK WhatsApp, validasi tujuan, hapus log
+
+Tangkap ERROR asinkron dan kode penolakan, lindungi receipt dari regresi, cek nomor sebelum kirim, tampilkan diagnostik dan hapus log melalui admin. Lihat PANDUAN_UPDATE_v2.7.3.md.
+
 # v2.7.2 — Inbox LID dan receipt pengiriman
 
 - Terima personal chat PN dan LID; gunakan remoteJidAlt/mapping bila tersedia. LID tanpa nomor tetap dicatat dan balasan diarahkan ke JID asli.

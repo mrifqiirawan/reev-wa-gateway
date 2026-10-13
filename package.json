@@ -1,7 +1,7 @@
 {
   "name": "reev-wa-gateway",
   "private": true,
-  "version": "2.7.2",
+  "version": "2.7.3",
   "type": "module",
   "scripts": {
     "dev": "node --import tsx scripts/dev.mjs",

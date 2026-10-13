@@ -10,6 +10,7 @@ import makeWASocket, {
   type ConnectionState,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
+import { explainFailure } from './message-status.js';
 import QRCode from 'qrcode';
 import path from 'path';
 import fs from 'fs';
@@ -68,6 +69,8 @@ export class BaileysManager {
   private receiptHandler?: (id:string,status:'delivered'|'read')=>void;
   private outgoingMessageLookup?: (id: string) => string | undefined;
   public setOutgoingMessageLookup(fn: (id: string) => string | undefined) { this.outgoingMessageLookup = fn; }
+  private failureHandler?: (id: string, code: string, message: string) => void;
+  public setFailureHandler(fn: (id: string, code: string, message: string) => void) { this.failureHandler = fn; }
   private statusHandler?: (status:string)=>void;
   public setReceiptHandler(fn:(id:string,status:'delivered'|'read')=>void) {this.receiptHandler=fn;}
   public setStatusHandler(fn:(status:string)=>void) {this.statusHandler=fn;}
@@ -225,6 +228,10 @@ export class BaileysManager {
         if (generation !== this.generation) return;
         for (const { key, update } of updates) {
           if (key.fromMe === false || !key.id) continue;
+          if (update.status === 0) {
+            const code = String(update.messageStubParameters?.[0] || 'WA_REJECTED').slice(0, 80);
+            this.failureHandler?.(key.id, code, explainFailure(code));
+          }
           if (update.status === 3) this.receiptHandler?.(key.id, 'delivered');
           if (update.status === 4 || update.status === 5) this.receiptHandler?.(key.id, 'read');
         }
@@ -308,17 +315,36 @@ export class BaileysManager {
     }
   }
 
+  public async checkRecipient(recipient: string): Promise<{ exists: boolean; jid: string }> {
+    let phone = recipient.replace(/[^0-9]/g, '');
+    if (phone.startsWith('0')) phone = '62' + phone.slice(1);
+    if (!/^[1-9][0-9]{7,14}$/.test(phone)) throw new Error('Nomor tidak valid. Gunakan kode negara, contoh 628...');
+    const socket = this.socket;
+    const generation = this.generation;
+    if (!socket || this.status !== 'connected') throw new Error('Sesi WhatsApp belum terhubung.');
+    const results = await socket.onWhatsApp(phone);
+    if (generation !== this.generation || this.status !== 'connected') throw new Error('Koneksi berubah saat memeriksa nomor. Coba setelah terhubung.');
+    if (!Array.isArray(results)) throw new Error('Pemeriksaan nomor belum mendapat jawaban WhatsApp. Coba lagi nanti.');
+    const found = results.find(row => row.exists);
+    return { exists: !!found, jid: found?.jid || `${phone}@s.whatsapp.net` };
+  }
+
   public async sendTextMessage(recipient: string, message: string, onMessageId?: (id: string) => void, remoteJid?: string): Promise<{ messageId: string; latencyMs: number }> {
     const cleanPhone = recipient.replace(/[^0-9]/g, '');
-    const jid = remoteJid ? jidNormalizedUser(remoteJid) : `${cleanPhone}@s.whatsapp.net`;
+    let jid = remoteJid ? jidNormalizedUser(remoteJid) : `${cleanPhone}@s.whatsapp.net`;
     if (!/^[0-9]+@(s\.whatsapp\.net|lid)$/.test(jid)) throw new Error('Identitas tujuan tidak valid');
     const start = Date.now();
 
     if (this.socket && this.status === 'connected') {
-      const messageId = generateMessageIDV2(this.socket.user?.id);
+      if (!remoteJid) {
+        const target = await this.checkRecipient(recipient);
+        if (!target.exists) throw new Error('Nomor tujuan tidak terdaftar WhatsApp menurut hasil pemeriksaan saat ini.');
+        jid = jidNormalizedUser(target.jid);
+      }
+      const messageId = generateMessageIDV2(this.socket!.user?.id);
       // Persist the provider ID before sendMessage can emit a receipt.
       onMessageId?.(messageId);
-      const result = await this.socket.sendMessage(jid, { text: message }, { messageId });
+      const result = await this.socket!.sendMessage(jid, { text: message }, { messageId });
       if(!result?.key?.id) throw new Error('WhatsApp tidak mengembalikan ID pesan; hasil belum pasti.');
       const latencyMs = Date.now() - start;
       return {

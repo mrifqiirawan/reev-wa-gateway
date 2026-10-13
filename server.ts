@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { advanceReceipt, finishSend } from './src/server/message-status.js';
+import { advanceReceipt, finishSend, failSend } from './src/server/message-status.js';
 import { deliverWebhook } from './src/server/webhook.js';
 import { atomicJson } from './src/server/auth.js';
 import { installAuth } from './src/server/auth.js';
@@ -166,8 +166,8 @@ async function sendReal(recipient: unknown, message: unknown, type: MessageLogDa
   if((!remoteJid && !/^[1-9][0-9]{7,14}$/.test(phone)) || typeof message !== 'string' || !message.trim() || message.length>16000) throw new Error('Nomor/pesan tidak valid (maksimum 16000 karakter).');
   const log: MessageLogData={id:crypto.randomUUID(),recipient:phone || remoteJid!,content:message,type,status:'sending',timestamp:new Date().toISOString(),latencyMs:0,retryCount:0,deviceId};
   messageLogs.unshift(log); persist();
-  try { const result=await baileysManager.sendTextMessage(phone,message,id=>{log.id=id;persist();},remoteJid); Object.assign(log,result,{id:result.messageId}); finishSend(log); persist(); void dispatch('message.sent',log); return {success:true,...result,status:log.status,recipient:log.recipient}; }
-  catch(e) { log.status='failed'; log.errorMessage=String(e); persist(); void dispatch('message.failed',log); throw e; }
+  try { const result=await baileysManager.sendTextMessage(phone,message,id=>{log.id=id;persist();},remoteJid); Object.assign(log,result,{id:result.messageId}); finishSend(log); persist(); if(log.status === 'failed') throw new Error(log.errorMessage || 'WhatsApp menolak pesan.'); void dispatch('message.sent',log); return {success:true,...result,status:log.status,recipient:log.recipient}; }
+  catch(e) { failSend(log,log.errorCode || 'SEND_ERROR',log.errorMessage || String(e)); persist(); void dispatch('message.failed',log); throw e; }
 }
 
 
@@ -229,6 +229,10 @@ function findMatchingRule(text: string): { rule: AutoResponderRuleData; matchedK
 }
 
 baileysManager.setOutgoingMessageLookup(id=>messageLogs.find(row=>row.id===id)?.content);
+baileysManager.setFailureHandler((id,code,message)=>{
+  const row=messageLogs.find(l=>l.id===id);
+  if(row && failSend(row,code,message)){persist();void dispatch('message.failed',row);}
+});
 baileysManager.setReceiptHandler((id,status)=>{const row=messageLogs.find(l=>l.id===id);if(row && advanceReceipt(row,status)){persist();void dispatch('message.delivered',row);}});
 baileysManager.setStatusHandler(status=>{void dispatch('device.status',{status});if(status==='connected')void drainBulk();});
 // Incoming messages are recorded even when automatic replies are disabled.
@@ -261,7 +265,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.7.2',
+    version: '2.7.3',
     engine: 'Baileys Multi-Device (unofficial)',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,
@@ -343,8 +347,8 @@ async function drainBulk() {
   try {
     for(const log of messageLogs.filter(l=>l.status==='queued' && l.type==='broadcast').reverse()) {
       log.status='sending';persist();
-      try {const result=await baileysManager.sendTextMessage(log.recipient,log.content,id=>{log.id=id;persist();}); log.id=result.messageId;log.latencyMs=result.latencyMs;finishSend(log);void dispatch('message.sent',log);}
-      catch(e) {log.status='failed';log.errorMessage=String(e);void dispatch('message.failed',log);}
+      try {const result=await baileysManager.sendTextMessage(log.recipient,log.content,id=>{log.id=id;persist();}); log.id=result.messageId;log.latencyMs=result.latencyMs;finishSend(log);if(String(log.status) !== 'failed')void dispatch('message.sent',log);}
+      catch(e) {failSend(log,log.errorCode || 'SEND_ERROR',log.errorMessage || String(e));void dispatch('message.failed',log);}
       persist(); await new Promise(r=>setTimeout(r,4000+Math.random()*4000));
     }
   } finally {bulkRunning=false;if(baileysManager.getDeviceState().status==='connected'&&messageLogs.some(l=>l.status==='queued'&&l.type==='broadcast'))void drainBulk();}
@@ -525,6 +529,25 @@ app.get('/api/logs', (req: Request, res: Response) => {
     total: results.length,
     logs: results.slice(0, Math.min(500,Math.max(1,Number(limit)||50)))
   });
+});
+
+// Only authenticated administrators can reach these routes (integration keys cannot).
+app.post('/api/recipients/check', async(req,res)=>{
+  try { res.json({success:true,...await baileysManager.checkRecipient(String(req.body.recipient || ''))}); }
+  catch(e){res.status(503).json({success:false,error:String(e)});}
+});
+app.delete('/api/logs', (req,res)=>{
+  const ids=req.body?.ids;
+  if(!Array.isArray(ids) || ids.length<1 || ids.length>500 || ids.some(id=>typeof id!=='string' || !id))
+    return res.status(400).json({success:false,error:'Pilih 1–500 ID log yang akan dihapus.'});
+  const selected=new Set(ids);
+  const matches=messageLogs.filter(row=>selected.has(row.id));
+  if(matches.some(row=>row.status==='queued'||row.status==='sending'))
+    return res.status(409).json({success:false,error:'Log antrean atau pengiriman aktif tidak dapat dihapus.'});
+  const before=[...messageLogs];
+  for(let i=messageLogs.length-1;i>=0;i--) if(selected.has(messageLogs[i].id)) messageLogs.splice(i,1);
+  try {persist();} catch(e) {messageLogs.splice(0,messageLogs.length,...before); throw e;}
+  res.json({success:true,deleted:matches.length});
 });
 
 app.post('/api/logs/retry',async(req,res)=>{

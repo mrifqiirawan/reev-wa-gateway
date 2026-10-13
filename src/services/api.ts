@@ -213,6 +213,12 @@ class ApiService {
     return this.request(`/api/logs?${query.toString()}`);
   }
 
+  async deleteLogs(ids: string[]): Promise<{ success: boolean; deleted: number }> {
+    return this.request('/api/logs', { method: 'DELETE', body: JSON.stringify({ ids }) });
+  }
+  async checkRecipient(recipient: string): Promise<{ success: boolean; exists: boolean; jid: string }> {
+    return this.request('/api/recipients/check', { method: 'POST', body: JSON.stringify({ recipient }) });
+  }
   async retryLog(id: string): Promise<{ success: boolean; log: MessageLog }> {
     return this.request('/api/logs/retry', {
       method: 'POST',
