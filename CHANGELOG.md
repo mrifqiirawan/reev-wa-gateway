@@ -1,3 +1,11 @@
+# v2.7.1 — Perbaikan sesi WhatsApp dan JSON
+
+- POST/DELETE tanpa parameter kini mengirim body JSON `{}`.
+- Sesi revoked/badSession ditandai persisten dan dibersihkan saat pengguna meminta QR baru.
+- Reconnect biasa mempertahankan kredensial yang masih valid.
+- Penulisan kredensial dituntaskan sebelum sesi dimuat ulang/dihapus.
+- Tambahan regresi API client → proxy → backend dan siklus sesi Baileys.
+
 # v2.7.0
 
 - API key server persisten, tampil/salin admin, rotasi dengan password; key env tetap didukung.

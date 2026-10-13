@@ -50,6 +50,11 @@ export class BaileysManager {
   private incomingMessageHandler: IncomingMessageHandler | null = null;
   private isConnecting: boolean = false;
   private generation = 0;
+  private credentialWrites: Promise<void> = Promise.resolve();
+  private invalidSession = false;
+  private get invalidSessionFile() {
+    return path.join(this.dependencies.sessionsDir, 'default.invalid');
+  }
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private connectionTimer?: ReturnType<typeof setTimeout>;
   private retryCount = 0;
@@ -63,14 +68,14 @@ export class BaileysManager {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.connectionTimer);
   }
-  private stopSocket() {
+  private stopSocket(closeTransport = true) {
     this.generation++;
     this.clearTimers();
     this.socket?.ev.removeAllListeners('connection.update');
     this.socket?.ev.removeAllListeners('messages.upsert');
     this.socket?.ev.removeAllListeners('creds.update');
     this.socket?.ev.removeAllListeners('messages.update');
-    this.socket?.end(new Error('Local connection stopped'));
+    if (closeTransport) this.socket?.end(new Error('Local connection stopped'));
     this.socket = null;
     this.isConnecting = false;
     this.qrDataUrl = null;
@@ -110,6 +115,16 @@ export class BaileysManager {
 
     try {
       const sessionPath = path.join(this.dependencies.sessionsDir, 'default');
+      // Drain the old socket's credential writes before removing or reloading auth.
+      await this.credentialWrites;
+      if (generation !== this.generation) return;
+      if (this.invalidSession || fs.existsSync(this.invalidSessionFile)) {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+        fs.rmSync(this.invalidSessionFile, { force: true });
+        this.invalidSession = false;
+        this.connectedPhone = '';
+        this.connectedName = 'REEV WhatsApp Gateway';
+      }
       const { state, saveCreds } = await this.dependencies.loadAuth(sessionPath);
 
       const logger = pino({ level: 'silent' });
@@ -125,7 +140,13 @@ export class BaileysManager {
       });
 
       this.socket.ev.on('creds.update', () => {
-        void saveCreds().catch(err => { this.lastError = 'Gagal menyimpan sesi WhatsApp. Periksa izin DATA_DIR.'; console.error(err); });
+        if (generation !== this.generation) return;
+        this.credentialWrites = this.credentialWrites.then(async () => {
+          await saveCreds();
+        }).catch(err => {
+          if (generation === this.generation) this.lastError = 'Gagal menyimpan sesi WhatsApp. Periksa izin DATA_DIR.';
+          console.error(err);
+        });
       });
 
       this.socket.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
@@ -155,7 +176,11 @@ export class BaileysManager {
           if (statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession) {
             this.status = 'auth_failure';
             this.connectedPhone = '';
-            this.lastError = 'Sesi WhatsApp tidak valid. Hapus sesi perangkat lalu tautkan ulang.';
+            this.invalidSession = true;
+            this.lastError = 'Sesi WhatsApp telah berakhir. Klik Minta QR Baru (Baileys) untuk membuat QR baru, lalu tautkan dari WhatsApp.';
+            // Keep this marker across backend restarts. Only this device's auth is reset.
+            try { fs.writeFileSync(this.invalidSessionFile, 'invalid', { mode: 0o600 }); }
+            catch { this.lastError += ' Penanda sesi gagal disimpan; periksa izin DATA_DIR.'; }
           } else if (this.retryCount < 5) {
             const delay = Math.min(3000 * 2 ** this.retryCount++, 30000);
             this.status = 'connecting';
@@ -280,13 +305,14 @@ export class BaileysManager {
   }
 
   public async disconnect() {
-    this.clearTimers();
-    this.generation++;
     const socket = this.socket;
-    socket?.ev.removeAllListeners('connection.update');
+    this.stopSocket(false);
     try { await socket?.logout(); } catch {}
-    this.stopSocket();
+    finally { socket?.end(new Error('Local session reset')); }
+    await this.credentialWrites;
     fs.rmSync(path.join(this.dependencies.sessionsDir, 'default'), { recursive: true, force: true });
+    fs.rmSync(this.invalidSessionFile, { force: true });
+    this.invalidSession = false;
     this.status = 'disconnected';
     this.connectedPhone = '';
     this.retryCount = 0;

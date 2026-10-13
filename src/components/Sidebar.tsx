@@ -168,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
               Protokol WhatsApp
             </span>
-            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.7.0</span>
+            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.7.1</span>
           </div>
 
           {onLogout && (

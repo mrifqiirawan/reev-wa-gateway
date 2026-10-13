@@ -1,21 +1,23 @@
-# Verifikasi v2.7.0 — 11 Oktober 2026
+# Hasil uji v2.7.1
 
-| Pemeriksaan | Hasil | Lingkungan |
-|---|---|---|
-| `npm ci` dari lockfile | PASS | Node 24 lokal |
-| `npm run lint` | PASS | TypeScript lokal |
-| `npm test` | PASS, 18 tests | Node test runner |
-| `npm run build` | PASS | Vite produksi |
-| Login → API key tampil/sembunyi → SDK | PASS | Chromium lokal dengan backend nyata, data uji |
-| SDK viewport 390/1366 | Diperiksa | Browser lokal |
-| Secret key lifecycle, auth scope, rotation, persistence | PASS | Server lokal |
-| Offline text/OTP tidak sukses palsu | PASS | Server lokal tanpa WA |
-| HMAC byte persis, HTTPS/private DNS guard, status webhook gagal | PASS | Mock transport + request lokal |
-| Persistensi login setelah restart proses | PASS | Child process backend produksi |
-| Kirim WA/receipt/pairing ke jaringan WhatsApp | NOT_RUN | Memerlukan sesi pengelola |
-| Endpoint webhook HTTPS milik pengguna | NOT_RUN | Tidak ada endpoint uji diberikan |
-| Deployment VPS 103.253.244.29 | NOT_RUN | Source belum diunggah ke VPS |
+Tanggal: 13 Oktober 2026. Uji lokal; tidak mengakses akun WhatsApp pengguna.
 
-Tes tidak mengirim pesan ke nomor nyata. Browser tidak memegang data/kunci produksi. Tidak ada klaim semua kemungkinan kondisi jaringan telah diuji. Tinjau UPGRADE_v2.7.0.md untuk batas bulk/webhook/LID, single-process dan retry.
+| Pemeriksaan | Hasil |
+|---|---|
+| npm ci --ignore-scripts --no-audit --no-fund | PASS, 293 paket terpasang dari lockfile |
+| npm test | PASS, 24 tes, 0 gagal |
+| npm run lint (TypeScript) | PASS |
+| npm run build | PASS, dist dibangun ulang |
+| Reproduksi DELETE tanpa body dengan header JSON | PASS: ditolak 403 pada middleware asli |
+| API client asli: init, reconnect, delete device, delete rule | PASS: JSON diterima langsung dan melalui proxy lokal |
+| Permintaan cross-site | PASS: tetap ditolak 403 |
+| Logout dari HP (event simulasi 401), badSession (500), QR baru | PASS dengan mock transport |
+| Penanda sesi invalid bertahan setelah restart | PASS |
+| Penulisan kredensial tertunda sebelum reset | PASS |
+| Reconnect biasa mempertahankan auth, reset tidak menghapus admin | PASS |
+| Tes auth, proxy, backend restart, webhook dan API existing | PASS |
+| Pindai QR/tautkan ulang ke WhatsApp nyata | NOT_RUN: memerlukan HP/akun pengguna |
+| Deploy Vercel/VPS pengguna dan QA browser | NOT_RUN: tidak ada akses deployment yang digunakan |
 
-Vite memberi peringatan NODE_ENV=production dalam .env; build tetap berhasil. NODE_ENV dipakai backend, sedangkan build Vite sudah mode production. Jangan mengganti NODE_ENV menjadi development untuk menjalankan server produksi.
+Mock transport menguji perilaku aplikasi, bukan keberhasilan jaringan WhatsApp.
+Referensi perilaku auth Baileys: https://github.com/WhiskeySockets/docs/blob/main/advanced/troubleshooting.mdx

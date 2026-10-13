@@ -14,8 +14,12 @@ class ApiService {
     localStorage.removeItem('reev_auth_token');
   }
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const method = (options.method || 'GET').toUpperCase();
+    const body = options.body ?? (!['GET', 'HEAD'].includes(method) ? '{}' : undefined);
     const res = await fetch(endpoint, {
       ...options,
+      method,
+      body,
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', ...options.headers },
       signal: options.signal || AbortSignal.timeout(30000),
