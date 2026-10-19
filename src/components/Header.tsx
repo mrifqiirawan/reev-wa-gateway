@@ -16,6 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   connectedCount,
 }) => {
   const viewTitles: Record<NavView, { title: string; subtitle: string }> = {
+    bot: {title:'Menu, Paket & Point',subtitle:'Menu custom WhatsApp, keanggotaan dan REEV Belajar'},
     dashboard: {
       title: 'Dashboard Analitik',
       subtitle: 'Monitoring performa pengiriman pesan, throughput & latensi real-time',

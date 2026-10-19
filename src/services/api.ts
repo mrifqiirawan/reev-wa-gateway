@@ -52,6 +52,8 @@ class ApiService {
     await this.request('/api/auth/logout', { method: 'POST', body: '{}' });
   }
 
+  botRequest<T>(path:string,body?:unknown,method?:string,signal?:AbortSignal):Promise<T>{return this.request('/api/bot'+path,{method:method||(body===undefined?'GET':'POST'),body:body===undefined?undefined:JSON.stringify(body),signal});}
+
   // System Status
   async getStatus() {
     return this.request<{

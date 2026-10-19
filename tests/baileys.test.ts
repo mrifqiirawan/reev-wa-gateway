@@ -145,3 +145,11 @@ test('reconnect waits for in-flight credential save before resetting revoked aut
     release(); await reconnect; assert.equal(loads, 2);
   } finally { release(); await manager.disconnect(); fs.rmSync(sessionsDir, { recursive: true, force: true }); }
 });
+
+test('custom category list uses provider ID before relay and preserves command fallback',async()=>{
+ const sessionsDir=fs.mkdtempSync(path.join(os.tmpdir(),'reev-menu-'));let sent:any;let persisted='';
+ const manager=new BaileysManager({sessionsDir,loadAuth:(async()=>({state:{},saveCreds:async()=>{}})) as any,makeSocket:(()=>({})) as any});
+ (manager as any).status='connected';(manager as any).socket={user:{id:'628123456789@s.whatsapp.net'},relayMessage:async(jid:any,message:any,options:any)=>{assert.equal(persisted,'MENU_TEST_ID');sent={jid,message,options}}};
+ try{const result=await manager.sendTextMessage('628123456789','Pilih kategori: .menu belajar',id=>persisted=id,'628123456789@s.whatsapp.net',{messageId:'MENU_TEST_ID',choices:[{id:'.menu belajar',title:'Belajar'}]});assert.equal(result.messageId,'MENU_TEST_ID');assert.equal(sent.options.messageId,'MENU_TEST_ID');const interactive=sent.message.viewOnceMessage.message.interactiveMessage;assert.match(interactive.body.text,/\.menu belajar/);const params=JSON.parse(interactive.nativeFlowMessage.buttons[0].buttonParamsJson);assert.equal(params.sections[0].rows[0].id,'.menu belajar');}
+ finally{(manager as any).socket=null;fs.rmSync(sessionsDir,{recursive:true,force:true})}
+});

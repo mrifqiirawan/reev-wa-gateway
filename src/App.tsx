@@ -1,3 +1,4 @@
+import {BotManagementView} from './components/views/BotManagementView';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -177,6 +178,7 @@ export default function App() {
 
         {/* View Content Canvas */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {currentView === 'bot' && <BotManagementView />}
           {currentView === 'dashboard' && (
             <DashboardView
               analytics={analytics}

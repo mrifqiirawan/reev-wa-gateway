@@ -1,9 +1,12 @@
+import {selectedCommand,interactiveContent} from './bot-messages.js';
+import type {Choice} from './bot-engine.js';
 import 'dotenv/config';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   Browsers,
   generateMessageIDV2,
+  generateWAMessageFromContent,
   normalizeMessageContent,
   jidNormalizedUser,
   type WASocket,
@@ -263,7 +266,7 @@ export class BaileysManager {
             const senderNumber = phoneJid?.endsWith('@s.whatsapp.net') ? jidNormalizedUser(phoneJid).split('@')[0] : '';
             const content = normalizeMessageContent(msg.message);
             if (!content) continue;
-            const text = content.conversation || content.extendedTextMessage?.text ||
+            const text = selectedCommand(content) || content.conversation || content.extendedTextMessage?.text ||
               content.imageMessage?.caption || content.videoMessage?.caption ||
               content.documentMessage?.caption || content.buttonsResponseMessage?.selectedDisplayText ||
               content.listResponseMessage?.singleSelectReply?.selectedRowId || '';
@@ -329,7 +332,7 @@ export class BaileysManager {
     return { exists: !!found, jid: found?.jid || `${phone}@s.whatsapp.net` };
   }
 
-  public async sendTextMessage(recipient: string, message: string, onMessageId?: (id: string) => void, remoteJid?: string): Promise<{ messageId: string; latencyMs: number }> {
+  public async sendTextMessage(recipient: string, message: string, onMessageId?: (id: string) => void, remoteJid?: string, options?: {messageId?:string;choices?:Choice[]}): Promise<{ messageId: string; latencyMs: number }> {
     const cleanPhone = recipient.replace(/[^0-9]/g, '');
     let jid = remoteJid ? jidNormalizedUser(remoteJid) : `${cleanPhone}@s.whatsapp.net`;
     if (!/^[0-9]+@(s\.whatsapp\.net|lid)$/.test(jid)) throw new Error('Identitas tujuan tidak valid');
@@ -341,10 +344,15 @@ export class BaileysManager {
         if (!target.exists) throw new Error('Nomor tujuan tidak terdaftar WhatsApp menurut hasil pemeriksaan saat ini.');
         jid = jidNormalizedUser(target.jid);
       }
-      const messageId = generateMessageIDV2(this.socket!.user?.id);
+      const messageId = options?.messageId || generateMessageIDV2(this.socket!.user?.id);
       // Persist the provider ID before sendMessage can emit a receipt.
       onMessageId?.(messageId);
-      const result = await this.socket!.sendMessage(jid, { text: message }, { messageId });
+      let result;
+      if(options?.choices?.length){
+        const msg=generateWAMessageFromContent(jid,interactiveContent(message,options.choices),{userJid:this.socket!.user!.id,messageId});
+        await this.socket!.relayMessage(jid,msg.message!,{messageId,additionalNodes:[{tag:'biz',attrs:{},content:[{tag:'interactive',attrs:{type:'native_flow',v:'1'},content:[{tag:'native_flow',attrs:{v:'9',name:'single_select'}}]}]}]});
+        result=msg;
+      }else result = await this.socket!.sendMessage(jid, { text: message }, { messageId });
       if(!result?.key?.id) throw new Error('WhatsApp tidak mengembalikan ID pesan; hasil belum pasti.');
       const latencyMs = Date.now() - start;
       return {

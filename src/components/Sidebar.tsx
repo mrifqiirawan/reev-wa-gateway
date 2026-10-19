@@ -24,7 +24,8 @@ export type NavView =
   | 'logs'
   | 'api'
   | 'docs'
-  | 'settings';
+  | 'settings'
+  | 'bot';
 
 interface SidebarProps {
   currentView: NavView;
@@ -56,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const menuItems: MenuItem[] = [
     { id: 'dashboard', label: 'Dashboard Analitik', icon: LayoutDashboard },
     { id: 'devices', label: 'Perangkat & Sesi', icon: Smartphone, badge: connectedCount > 0 ? `${connectedCount} Aktif` : 'Offline' },
+    { id: 'bot', label: 'Menu, Paket & Point', icon: BookOpen },
     { id: 'autoresponder', label: 'Auto-Responder & Bot', icon: Bot, isHot: true },
     { id: 'broadcast', label: 'Pesan Massal (Bulk)', icon: Send },
     { id: 'inbox', label: 'Pesan Masuk (Inbox)', icon: Inbox },
@@ -168,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
               Protokol WhatsApp
             </span>
-            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.7.3</span>
+            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.8.0</span>
           </div>
 
           {onLogout && (

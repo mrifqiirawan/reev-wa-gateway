@@ -1,3 +1,6 @@
+import {BotStore} from './src/server/bot-store.js';
+import {BotEngine,type BotReply} from './src/server/bot-engine.js';
+import {installBotApi} from './src/server/bot-api.js';
 import 'dotenv/config';
 import { advanceReceipt, finishSend, failSend } from './src/server/message-status.js';
 import { deliverWebhook } from './src/server/webhook.js';
@@ -160,13 +163,13 @@ async function dispatch(event: string, data: unknown, force = false, target?: st
   try { const result = await deliverWebhook(target || webhookConfig.url, webhookConfig.secretKey, payload); webhookConfig.lastResponseCode=result.statusCode; persist(); return {...result,payload}; }
   catch(e) { webhookConfig.lastResponseCode=0; persist(); return {success:false,statusCode:0,error:String(e),payload}; }
 }
-async function sendReal(recipient: unknown, message: unknown, type: MessageLogData['type']='text', deviceId = 'device_primary', remoteJid?: string) {
+async function sendReal(recipient: unknown, message: unknown, type: MessageLogData['type']='text', deviceId = 'device_primary', remoteJid?: string, options?: {messageId?:string;choices?:import('./src/server/bot-engine.js').Choice[]}) {
   if (deviceId !== 'device_primary') throw new Error('deviceId tidak dikenal. Gunakan device_primary.');
   let phone=String(recipient || '').replace(/[^0-9]/g,''); if(phone.startsWith('0')) phone='62'+phone.slice(1);
   if((!remoteJid && !/^[1-9][0-9]{7,14}$/.test(phone)) || typeof message !== 'string' || !message.trim() || message.length>16000) throw new Error('Nomor/pesan tidak valid (maksimum 16000 karakter).');
   const log: MessageLogData={id:crypto.randomUUID(),recipient:phone || remoteJid!,content:message,type,status:'sending',timestamp:new Date().toISOString(),latencyMs:0,retryCount:0,deviceId};
   messageLogs.unshift(log); persist();
-  try { const result=await baileysManager.sendTextMessage(phone,message,id=>{log.id=id;persist();},remoteJid); Object.assign(log,result,{id:result.messageId}); finishSend(log); persist(); if(log.status === 'failed') throw new Error(log.errorMessage || 'WhatsApp menolak pesan.'); void dispatch('message.sent',log); return {success:true,...result,status:log.status,recipient:log.recipient}; }
+  try { const result=await baileysManager.sendTextMessage(phone,message,id=>{log.id=id;persist();},remoteJid,options); Object.assign(log,result,{id:result.messageId}); finishSend(log); persist(); if(log.status === 'failed') throw new Error(log.errorMessage || 'WhatsApp menolak pesan.'); void dispatch('message.sent',log); return {success:true,...result,status:log.status,recipient:log.recipient}; }
   catch(e) { failSend(log,log.errorCode || 'SEND_ERROR',log.errorMessage || String(e)); persist(); void dispatch('message.failed',log); throw e; }
 }
 
@@ -228,19 +231,31 @@ function findMatchingRule(text: string): { rule: AutoResponderRuleData; matchedK
   return null;
 }
 
+const botStore = new BotStore();
+const botEngine = new BotEngine(botStore,async(phone,reply,id,jid)=>{
+ if(baileysManager.getDeviceState().status!=='connected')throw Object.assign(new Error('WhatsApp belum terhubung.'),{notSent:true});
+ return sendReal(phone,reply.text,'auto_reply','device_primary',jid,{messageId:id,choices:reply.interactive?reply.choices:undefined});
+});
+const botRecovery=setInterval(()=>{if(botStore.configured)void botStore.rpc('gw_recover').catch(()=>{});},60000);botRecovery.unref();
 baileysManager.setOutgoingMessageLookup(id=>messageLogs.find(row=>row.id===id)?.content);
 baileysManager.setFailureHandler((id,code,message)=>{
+  if(botStore.configured)void botStore.rpc('gw_delivery',{p_id:id,p_status:'failed'}).catch(()=>{});
   const row=messageLogs.find(l=>l.id===id);
   if(row && failSend(row,code,message)){persist();void dispatch('message.failed',row);}
 });
-baileysManager.setReceiptHandler((id,status)=>{const row=messageLogs.find(l=>l.id===id);if(row && advanceReceipt(row,status)){persist();void dispatch('message.delivered',row);}});
+baileysManager.setReceiptHandler((id,status)=>{if(botStore.configured)void botStore.rpc('gw_delivery',{p_id:id,p_status:status}).catch(()=>{});const row=messageLogs.find(l=>l.id===id);if(row && advanceReceipt(row,status)){persist();void dispatch('message.delivered',row);}});
 baileysManager.setStatusHandler(status=>{void dispatch('device.status',{status});if(status==='connected')void drainBulk();});
 // Incoming messages are recorded even when automatic replies are disabled.
 baileysManager.setIncomingMessageHandler(async ({senderNumber,senderName,messageText,remoteJid,messageId,timestamp,allowAutoReply})=>{
   if(inboxMessages.some(row=>row.sourceMessageId===messageId && row.remoteJid===remoteJid)) return null;
   const match=findMatchingRule(messageText);
   const row: InboxMessageData={id:crypto.randomUUID(),sourceMessageId:messageId,remoteJid,senderNumber,senderName,messageText,timestamp,status:'ignored',deviceId:'device_primary'};
-  inboxMessages.unshift(row); persist(); void dispatch('message.received',row);
+  inboxMessages.unshift(row); persist();
+  if(allowAutoReply){
+    try{if(await botEngine.handle({senderNumber,messageText,sourceMessageId:messageId,remoteJid,deviceId:'device_primary',onReply:text=>{row.botReplyText=text}})){row.status=row.botReplyText?'replied':'ignored';persist();return null;}}
+    catch{console.error('Custom bot processing failed; periksa koneksi/migrasi bot.');return null;}
+  }
+  void dispatch('message.received',row);
   if(!allowAutoReply) return null;
   let reply='';
   if(match) {
@@ -258,6 +273,7 @@ baileysManager.setIncomingMessageHandler(async ({senderNumber,senderName,message
 
 // Persistent auth lives on the single always-on backend.
 installAuth(app, path.resolve(process.env.DATA_DIR || 'sessions'));
+installBotApi(app,botStore,botEngine);
 
 // 1. System Status
 app.get('/api/status', (_req: Request, res: Response) => {
@@ -265,7 +281,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.7.3',
+    version: '2.8.0',
     engine: 'Baileys Multi-Device (unofficial)',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,

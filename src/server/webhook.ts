@@ -12,9 +12,9 @@ export async function deliverWebhook(url: string, secret: string, payload: unkno
   if (!addresses.length || addresses.some(a=>privateIP(a.address))) throw new Error('Alamat webhook privat/reserved ditolak.');
   const body = JSON.stringify(payload);
   const signature = crypto.createHmac('sha256', secret).update(body).digest('hex');
-  return new Promise<{success:boolean;statusCode:number}>((resolve,reject)=>{
+  return new Promise<{success:boolean;statusCode:number;body?:string}>((resolve,reject)=>{
     const req = dependencies.request(target, {method:'POST', family: 4, lookup: (_host: any, options: any, cb: any) => options.all ? cb(null, [addresses[0]]) : cb(null, addresses[0].address, 4), headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-REEV-Signature':'sha256='+signature}}, res=>{
-      res.resume(); resolve({success: !!res.statusCode && res.statusCode>=200 && res.statusCode<300, statusCode:res.statusCode || 0});
+      const chunks: Buffer[]=[];let size=0;res.on('data',chunk=>{size+=chunk.length;if(size>32768){req.destroy(new Error('Webhook response too large'));return;}chunks.push(Buffer.from(chunk));});res.on('error',reject);res.on('end',()=>resolve({success: !!res.statusCode && res.statusCode>=200 && res.statusCode<300, statusCode:res.statusCode || 0,body:Buffer.concat(chunks).toString('utf8')}));
     });
     const timer=setTimeout(()=>req.destroy(new Error('Webhook timeout (10 detik).')),10000);
     req.on('close',()=>clearTimeout(timer)); req.on('error',reject); req.end(body);

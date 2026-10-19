@@ -1,0 +1,15 @@
+import test from 'node:test';import assert from 'node:assert/strict';import express from 'express';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {installAuth} from '../src/server/auth.js';import {installBotApi} from '../src/server/bot-api.js';import {BotStore} from '../src/server/bot-store.js';import {BotEngine} from '../src/server/bot-engine.js';import {defaultBotConfig} from '../src/shared/bot.js';
+test('bot admin APIs require existing admin cookie, not integration key',async()=>{
+ const dir=fs.mkdtempSync(path.join(process.cwd(),'bot-auth-test-'));const env={...process.env};process.env.ADMIN_PASSWORD='synthetic-password-2947';process.env.GATEWAY_API_KEY='synthetic-key';delete process.env.BACKEND_SHARED_SECRET;
+ const config=structuredClone(defaultBotConfig);const calls:any[]=[];const store={configured:true,config:async()=>({config,revision:1}),rpc:async(name:string,args:any)=>{calls.push({name,args});return 2},request:async()=>[]} as unknown as BotStore;const engine=new BotEngine(store,async()=>({status:'sent'}));const app=express();app.use(express.json());installAuth(app,dir);installBotApi(app,store,engine);const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.on('listening',r));const base=`http://127.0.0.1:${(server.address() as any).port}`;
+ try{
+  assert.equal((await fetch(base+'/api/bot')).status,401);assert.equal((await fetch(base+'/api/bot',{headers:{Authorization:'Bearer synthetic-key'}})).status,401);
+  const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:process.env.ADMIN_PASSWORD})});const cookie=login.headers.get('set-cookie')!.split(';')[0];assert.equal(login.status,200);
+  const initial=await fetch(base+'/api/bot',{headers:{cookie}});assert.equal(initial.status,200);assert.equal((await initial.json()).revision,1);
+  const save=(data:any,headers:any={})=>fetch(base+'/api/bot/config',{method:'PUT',headers:{cookie,'Content-Type':'application/json',...headers},body:JSON.stringify(data)});
+  const bad=structuredClone(config);bad.commands[0].command='.menu';assert.equal((await save({config:bad,revision:1})).status,400);assert.equal(calls.length,0);
+  assert.equal((await save({config,revision:1},{'sec-fetch-site':'cross-site'})).status,403);assert.equal((await save({config,revision:1})).status,200);assert.equal(calls[0].name,'gw_save_config');
+  const preview=await fetch(base+'/api/bot/preview',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({config,tier:'standard'})});assert.equal(preview.status,200);assert.match((await preview.json()).reply.text,/REEV WA/);assert.equal(calls.length,1);
+  await fetch(base+'/api/auth/logout',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:'{}'});assert.equal((await fetch(base+'/api/bot',{headers:{cookie}})).status,401);
+ }finally{await new Promise<void>(r=>server.close(()=>r()));fs.rmSync(dir,{recursive:true,force:true});for(const key of Object.keys(process.env))if(!(key in env))delete process.env[key];Object.assign(process.env,env);}
+});

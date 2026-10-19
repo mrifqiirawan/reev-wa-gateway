@@ -1,3 +1,12 @@
+# v2.8.0 — 19 Oktober 2026
+
+- Bot platform Supabase, menu kategori, editor fungsi dan paket/point.
+- Kuota harian, reservasi atomik, deduplikasi, refund dan rekonsiliasi UNKNOWN.
+- Keanggotaan manual, expiry, audit, dan pratinjau tanpa pengiriman.
+- Integrasi NISN/YA dan fungsi akademik REEV Belajar v1.1.0.
+- Native-flow menu opt-in dengan input teks dan parser pilihan; verifikasi perangkat diperlukan.
+- TypeScript dev compiler dipatok 5.9.3 untuk pengecekan portabel tanpa binary native.
+
 # v2.7.3 — NACK WhatsApp, validasi tujuan, hapus log
 
 Tangkap ERROR asinkron dan kode penolakan, lindungi receipt dari regresi, cek nomor sebelum kirim, tampilkan diagnostik dan hapus log melalui admin. Lihat PANDUAN_UPDATE_v2.7.3.md.

@@ -34,7 +34,7 @@ test('v2.7 real routes: key lifecycle, transport errors, persistent webhook, SDK
 });
 test('webhook HMAC covers exact body and network status is truthful',async()=>{
  let headers:any;let sent='';
- const deps:any={lookup:async()=>[{address:'93.184.216.34',family:4}],request:(_url:any,opts:any,cb:any)=>{headers=opts.headers;const req:any=new EventEmitter();req.end=(body:string)=>{sent=body;cb({statusCode:503,resume(){}});req.emit('close');};return req;}};
+ const deps:any={lookup:async()=>[{address:'93.184.216.34',family:4}],request:(_url:any,opts:any,cb:any)=>{headers=opts.headers;const req:any=new EventEmitter();req.end=(body:string)=>{sent=body;const res:any=new EventEmitter();res.statusCode=503;cb(res);res.emit('data',Buffer.from('{}'));res.emit('end');req.emit('close');};return req;}};
  const result=await deliverWebhook('https://example.com/hook','secret',{event:'test',text:'spasi dua  tetap'},deps);
  assert.equal(result.success,false);assert.equal(result.statusCode,503);assert.equal(headers['X-REEV-Signature'],'sha256='+crypto.createHmac('sha256','secret').update(sent).digest('hex'));
  await assert.rejects(deliverWebhook('http://example.com','secret',{}),/HTTPS/);

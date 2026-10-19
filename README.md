@@ -1,3 +1,7 @@
+# REEV WA Gateway v2.8.0
+
+Mulai upgrade dari **PANDUAN_UPDATE_v2.8.0.md**. Paket ini menambah menu custom, paket/point, dan integrasi REEV Belajar v1.1.0. Login admin dan sesi lama tetap dipakai.
+
 # REEV WA Gateway v2.7.3
 
 Backend Node.js persisten + dashboard React untuk satu sesi WhatsApp Baileys.
