@@ -1,3 +1,4 @@
+import {belajarConfigured} from './belajar-client.js';
 import type {Express,Request,Response} from 'express';
 import {validateConfig,defaultBotConfig} from '../shared/bot.js';
 import {BotStore} from './bot-store.js';
@@ -5,7 +6,7 @@ import {BotEngine,normalizePhone,categoryReply} from './bot-engine.js';
 export function installBotApi(app:Express,store:BotStore,engine:BotEngine){
  const route=(fn:(req:Request,res:Response)=>Promise<any>)=>async(req:Request,res:Response)=>{try{await fn(req,res)}catch(e){res.status(400).json({success:false,error:e instanceof Error?e.message:'Permintaan gagal.'})}};
  app.get('/api/bot',route(async(_req,res)=>{
-  const integrationConfigured=!!(process.env.BELAJAR_FUNCTION_URL&&process.env.BELAJAR_FUNCTION_SECRET);
+  const integrationConfigured=belajarConfigured();
   if(!store.configured)return res.json({success:true,configured:false,integrationConfigured,config:defaultBotConfig,revision:0});
   res.json({success:true,configured:true,integrationConfigured,...await store.config()});
  }));

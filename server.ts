@@ -1,3 +1,5 @@
+import {record} from './src/server/performance.js';
+import {installEnvironmentApi} from './src/server/environment.js';
 import {BotStore} from './src/server/bot-store.js';
 import {BotEngine,type BotReply} from './src/server/bot-engine.js';
 import {installBotApi} from './src/server/bot-api.js';
@@ -154,7 +156,7 @@ if (fs.existsSync(stateFile)) {
   autoResponderRules.splice(0, autoResponderRules.length, ...(saved.rules || []));
   fallbackConfig = saved.fallback || fallbackConfig; webhookConfig = saved.webhook || webhookConfig;
 }
-function persist() { atomicJson(stateFile, {messageLogs,inboxMessages,rules:autoResponderRules,fallback:fallbackConfig,webhook:webhookConfig}); }
+function persist() { const start=performance.now();try{atomicJson(stateFile, {messageLogs,inboxMessages,rules:autoResponderRules,fallback:fallbackConfig,webhook:webhookConfig});}finally{record('disk.persist',performance.now()-start)} }
 async function dispatch(event: string, data: unknown, force = false, target?: string) {
   const flags: Record<string, keyof typeof webhookConfig.events> = {'message.received':'onMessageReceived','message.sent':'onMessageSent','message.delivered':'onMessageDelivered','message.failed':'onMessageFailed','device.status':'onDeviceStatusChanged'};
   if (!force && (!webhookConfig.isEnabled || !webhookConfig.events[flags[event]])) return {success:false, skipped:true};
@@ -273,6 +275,7 @@ baileysManager.setIncomingMessageHandler(async ({senderNumber,senderName,message
 
 // Persistent auth lives on the single always-on backend.
 installAuth(app, path.resolve(process.env.DATA_DIR || 'sessions'));
+installEnvironmentApi(app,()=>baileysManager.incomingQueueStats());
 installBotApi(app,botStore,botEngine);
 
 // 1. System Status
@@ -281,7 +284,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.8.0',
+    version: '2.8.1',
     engine: 'Baileys Multi-Device (unofficial)',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,
@@ -692,7 +695,7 @@ async function setupServer() {
   if (fs.existsSync(path.resolve(process.env.DATA_DIR || 'sessions', 'default/creds.json'))) {
     void baileysManager.initSocket().catch(err => console.error('Gagal memulihkan sesi WA:', err.message));
   }
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, process.env.HOST || '0.0.0.0', () => {
     console.log(`🚀 REEV WA Gateway listening on http://0.0.0.0:${PORT}`);
   });
 }

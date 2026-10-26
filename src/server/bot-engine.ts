@@ -1,7 +1,9 @@
 import {generateMessageIDV2} from '@whiskeysockets/baileys';
 import {type BotConfig,type BotCommand,tierOrder,validateConfig} from '../shared/bot.js';
 import {BotStore} from './bot-store.js';
-import {deliverWebhook} from './webhook.js';
+import {callBelajar} from './belajar-client.js';
+export {callBelajar} from './belajar-client.js';
+import {timed} from './performance.js';
 export type Choice={id:string;title:string;description?:string};
 export type BotReply={text:string;choices?:Choice[];interactive?:boolean};
 export function normalizePhone(raw:string){let p=raw.replace(/[ ()-]/g,'');if(p.startsWith('0'))p='+62'+p.slice(1);else if(!p.startsWith('+'))p='+'+p;if(!/^\+[1-9]\d{7,14}$/.test(p))throw Error('Nomor WhatsApp tidak valid.');return p}
@@ -15,19 +17,24 @@ export function categoryReply(c:BotConfig,ctx:any,category?:string,page=1):BotRe
  if(category||p>1)items.push({id:'.menu',title:'← Menu utama'});
  return {text:header+`\n\n${category?c.categories.find(x=>x.id===category)?.name:'Pilih kategori'} · ${p}/${max}\n`+shown.map(x=>`${x.title}\n${x.id}${x.description?' · '+x.description:''}`).join('\n\n')+(shown.length?'':'Belum ada menu aktif.')+`\n\n.point · .paket`+(p<max?`\nLanjut: .menu ${category||'utama'} ${p+1}`:''),choices:items,interactive:c.presentation==='interactive'};
 }
-export async function callBelajar(event:string,phone:string,action:string,argument:string){
- const target=process.env.BELAJAR_FUNCTION_URL,secret=process.env.BELAJAR_FUNCTION_SECRET;
- if(!target||!secret||secret.length<32)throw Error('Integrasi REEV Belajar belum dikonfigurasi. Hubungi admin.');
- const url=new URL(target);if(url.pathname!=='/api/gateway-functions'||url.search||url.hash)throw Error('Endpoint REEV Belajar tidak valid.');
- const r=await deliverWebhook(target,secret,{id:event,timestamp:new Date().toISOString(),phone,action,argument});
- if(!r.success)throw Error('REEV Belajar sedang tidak tersedia. Coba lagi nanti.');
- let data:any;try{data=JSON.parse(r.body||'')}catch{throw Error('Respons REEV Belajar tidak valid.')}
- if(typeof data.ok!=='boolean'||typeof data.text!=='string'||!data.text.trim()||data.text.length>15000)throw Error('Respons REEV Belajar tidak valid.');return data;
-}
 export class BotEngine {
  private cached?:BotConfig;
+ private expires=0;
+ private cacheKey='';
+ private loading?:Promise<BotConfig>;
+ private revision=0;
+ private async configuration(){
+  const key=(process.env.BOT_SUPABASE_URL||'')+'|'+(process.env.BOT_SUPABASE_SERVICE_ROLE_KEY||'');
+  if(key!==this.cacheKey){this.invalidate();this.cacheKey=key;}
+  if(this.cached&&Date.now()<this.expires)return this.cached;
+  if(this.loading)return this.loading;
+  const revision=this.revision;
+  const pending=this.store.config().then(row=>{const c=validateConfig(row.config);if(revision===this.revision){this.cached=c;this.expires=Date.now()+5000;}return c});
+  this.loading=pending;
+  try{return await pending}finally{if(this.loading===pending)this.loading=undefined}
+ }
  constructor(public store:BotStore,private send:(phone:string,reply:BotReply,id:string,jid:string)=>Promise<{status?:string}>,private belajar=callBelajar){}
- invalidate(){this.cached=undefined}
+ invalidate(){this.cached=undefined;this.expires=0;this.loading=undefined;this.revision++}
  async handle(input:{senderNumber:string;messageText:string;sourceMessageId:string;remoteJid:string;deviceId:string;onReply?:(text:string)=>void}):Promise<boolean>{
   if(!this.store.configured)return false;
   const words=input.messageText.trim().split(/\s+/),command=words[0]?.toLowerCase();
@@ -36,7 +43,7 @@ export class BotEngine {
   if(!/^\d+(?::\d+)?@(s\.whatsapp\.net|lid)$/.test(input.remoteJid))return true;
   if(input.remoteJid.endsWith('@s.whatsapp.net')&&normalizePhone(input.remoteJid.split('@')[0].split(':')[0])!==phone)return true;
   let c:BotConfig;
-  try{c=validateConfig((await this.store.config()).config);this.cached=c}catch(e){
+  try{c=await this.configuration()}catch(e){
    if(command.startsWith('.info')||['.menu','.point','.paket','.batal','ya','batal'].includes(command)||this.cached?.commands.some(x=>x.command===command)){
     await this.send(phone,{text:'Menu sementara tidak tersedia. Silakan coba lagi setelah admin memeriksa koneksi database.'},generateMessageIDV2(),input.remoteJid).catch(()=>{});return true;
    }
@@ -72,7 +79,7 @@ export class BotEngine {
    const finished=await this.store.rpc('gw_finish',{p_event:event,p_ok:ok,p_reply:reply,p_pending:pending});if(!finished)return true;
   }
   const id=generateMessageIDV2();if(!await this.store.rpc('gw_claim',{p_event:event,p_id:id}))return true;
-  try{const r=await this.send(phone,reply,id,input.remoteJid);await this.store.rpc('gw_delivery',{p_id:id,p_status:r.status==='failed'?'failed':'sent'});if(r.status!=='failed')input.onReply?.(reply.text);}
+  try{const r=await timed('whatsapp.send',()=>this.send(phone,reply,id,input.remoteJid));await this.store.rpc('gw_delivery',{p_id:id,p_status:r.status==='failed'?'failed':'sent'});if(r.status!=='failed')input.onReply?.(reply.text);}
   catch(e){await this.store.rpc('gw_delivery',{p_id:id,p_status:(e as {notSent?:boolean})?.notSent?'failed':'unknown'}).catch(()=>{});}
   return true;
  }

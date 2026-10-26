@@ -1,0 +1,21 @@
+{
+  "scope": "SYNTHETIC: fixed 15 ms mock I/O per step. Both modes use the revised engine. Compares queue concurrency only; not real students/WA/Supabase or a production capacity guarantee.",
+  "results": [
+    {
+      "concurrency": 1,
+      "messages": 64,
+      "configReads": 2,
+      "totalMs": 5898,
+      "completionP50Ms": 2955,
+      "completionP95Ms": 5624
+    },
+    {
+      "concurrency": 8,
+      "messages": 64,
+      "configReads": 1,
+      "totalMs": 747,
+      "completionP50Ms": 382,
+      "completionP95Ms": 747
+    }
+  ]
+}

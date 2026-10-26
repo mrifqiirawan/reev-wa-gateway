@@ -33,6 +33,8 @@ test('LID, alternative PN, failed mapping, wrapped text, media, append and exclu
     incoming('g', '628123456789@s.whatsapp.net', { protocolMessage: {} }),
   ] });
   assert.equal(rows.length, 3);
+  // Chats may complete in parallel; validate identity by message id, not cross-chat order.
+  rows.sort((a,b)=>a.messageId.localeCompare(b.messageId));
   assert.equal(rows[0].senderNumber, ''); assert.equal(rows[0].remoteJid, '999@lid');
   assert.equal(rows[1].senderNumber, '628123456789'); assert.equal(rows[1].messageText, 'wrapped');
   assert.equal(rows[2].messageText, '[Gambar]'); assert.equal(rows[2].allowAutoReply, false);
@@ -67,4 +69,14 @@ test('persist ID before early receipt; receipt sources are monotonic; retry look
   assert.equal(advanceReceipt(row, 'read'), false);
   assert.equal(await options.getMessage({ id: 'unknown' }), undefined);
   await manager.disconnect(); assert.equal(socket.ev.listenerCount('message-receipt.update'), 0);
+}));
+
+test('different chats in a batch run concurrently; same chat stays FIFO across upserts',async()=>fixture(async(manager,socket)=>{
+ let release!:()=>void;const hold=new Promise<void>(r=>release=r);const order:string[]=[];
+ manager.setIncomingMessageHandler(async row=>{order.push(row.messageId+'-start');if(row.messageId==='a1')await hold;order.push(row.messageId+'-done');return null;});
+ const upsert=socket.ev.listeners('messages.upsert')[0];
+ const batch=upsert({type:'notify',messages:[incoming('a1','628111111111@s.whatsapp.net',{conversation:'.menu'}),incoming('b1','628222222222@s.whatsapp.net',{conversation:'.menu'})]});
+ const next=upsert({type:'notify',messages:[incoming('a2','628111111111@s.whatsapp.net',{conversation:'.point'})]});
+ await new Promise(r=>setImmediate(r));assert.ok(order.includes('b1-done'));assert.ok(!order.includes('a2-start'));
+ release();await Promise.all([batch,next]);assert.ok(order.indexOf('a1-done')<order.indexOf('a2-start'));
 }));

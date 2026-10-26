@@ -1,3 +1,9 @@
+> Revisi performa v2.8.1: baca [docs/OPTIMASI_RESPONS_v2.8.1.md](docs/OPTIMASI_RESPONS_v2.8.1.md) untuk mode Supabase langsung, antrean paralel, dan pengukuran respons. Bagian konfigurasi webhook di bawah berlaku bila mode webhook aktif.
+
+# REEV WA Gateway 2.8.1
+
+Mulai dari [PANDUAN_VM_v2.8.1.md](PANDUAN_VM_v2.8.1.md) untuk instalasi VM, upgrade, konfigurasi dashboard dan SQL.
+
 # REEV WA Gateway v2.8.0
 
 Mulai upgrade dari **PANDUAN_UPDATE_v2.8.0.md**. Paket ini menambah menu custom, paket/point, dan integrasi REEV Belajar v1.1.0. Login admin dan sesi lama tetap dipakai.

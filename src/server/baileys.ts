@@ -1,3 +1,5 @@
+import {IncomingQueue} from './incoming-queue.js';
+import {timed} from './performance.js';
 import {selectedCommand,interactiveContent} from './bot-messages.js';
 import type {Choice} from './bot-engine.js';
 import 'dotenv/config';
@@ -49,6 +51,9 @@ export type IncomingMessageHandler = (msg: {
 }) => Promise<string | null>;
 
 export class BaileysManager {
+  private incomingQueue=new IncomingQueue();
+  public incomingQueueStats(){return this.incomingQueue.snapshot()}
+  private overloadNotice=new Map<string,number>();
   private socket: WASocket | null = null;
   private qrRaw: string | null = null;
   private qrDataUrl: string | null = null;
@@ -250,13 +255,15 @@ export class BaileysManager {
       this.socket.ev.on('messages.upsert', async ({ messages, type }) => {
         if (generation !== this.generation) return;
         const socket = this.socket;
-        for (const msg of messages || []) {
+        await Promise.all((messages || []).map(async msg => {
           if (generation !== this.generation) return;
-          if (!msg.message || msg.key.fromMe || !msg.key.id) continue;
+          if (!msg.message || msg.key.fromMe || !msg.key.id) return;
           const remoteJid = msg.key.remoteJid || '';
           // Personal chats support both phone-number JIDs and privacy LIDs.
-          if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) continue;
+          if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) return;
           try {
+           await this.incomingQueue.run(remoteJid,async()=>{
+            if(generation!==this.generation)return;
             let phoneJid = remoteJid.endsWith('@s.whatsapp.net') ? remoteJid : msg.key.remoteJidAlt;
             if (!phoneJid?.endsWith('@s.whatsapp.net')) {
               try { phoneJid = await socket?.signalRepository?.lidMapping?.getPNForLID(remoteJid) || undefined; }
@@ -265,7 +272,7 @@ export class BaileysManager {
             if (generation !== this.generation) return;
             const senderNumber = phoneJid?.endsWith('@s.whatsapp.net') ? jidNormalizedUser(phoneJid).split('@')[0] : '';
             const content = normalizeMessageContent(msg.message);
-            if (!content) continue;
+            if (!content) return;
             const text = selectedCommand(content) || content.conversation || content.extendedTextMessage?.text ||
               content.imageMessage?.caption || content.videoMessage?.caption ||
               content.documentMessage?.caption || content.buttonsResponseMessage?.selectedDisplayText ||
@@ -275,18 +282,23 @@ export class BaileysManager {
               content.stickerMessage ? '[Stiker]' : content.contactMessage || content.contactsArrayMessage ? '[Kontak]' :
               content.locationMessage || content.liveLocationMessage ? '[Lokasi]' : '';
             const messageText = text.trim() ? text : mediaLabel;
-            if (!messageText) continue; // Ignore protocol, reaction and other control messages.
+            if (!messageText) return; // Ignore protocol, reaction and other control messages.
             const seconds = Number(msg.messageTimestamp);
             const timestamp = Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : new Date().toISOString();
-            const replyText = await this.incomingMessageHandler?.({
+            const replyText = await timed('incoming.process',async()=>this.incomingMessageHandler?.({
               messageId: msg.key.id, timestamp, allowAutoReply: type === 'notify' && !!text.trim(),
               senderNumber, senderName: msg.pushName || 'Pengirim WhatsApp', messageText, remoteJid,
-            });
+            }));
             if (replyText && generation === this.generation) await socket?.sendMessage(remoteJid, { text: replyText });
+           });
           } catch (err) {
             console.error('Gagal memproses pesan masuk:', err instanceof Error ? err.message : 'unknown error');
+            if(generation===this.generation&&type==='notify'&&err instanceof Error&&/Antrean penuh|Waktu antre/.test(err.message)){
+              const now=Date.now();for(const [jid,at] of this.overloadNotice)if(now-at>30000)this.overloadNotice.delete(jid);
+              if(!this.overloadNotice.has(remoteJid)&&this.overloadNotice.size<256){this.overloadNotice.set(remoteJid,now);await socket?.sendMessage(remoteJid,{text:'Antrean sedang padat. Perintah ini belum diproses. Coba lagi sebentar.'}).catch(()=>{});}
+            }
           }
-        }
+        }));
       });
     } catch (err) {
       if (generation !== this.generation) return;

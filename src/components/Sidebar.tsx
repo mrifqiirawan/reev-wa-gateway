@@ -25,7 +25,8 @@ export type NavView =
   | 'api'
   | 'docs'
   | 'settings'
-  | 'bot';
+  | 'bot'
+  | 'environment';
 
 interface SidebarProps {
   currentView: NavView;
@@ -64,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'logs', label: 'Log Error & Pengiriman', icon: AlertTriangle },
     { id: 'api', label: 'API & Webhook', icon: Terminal },
     { id: 'docs', label: 'Panduan & SDK', icon: BookOpen },
+    { id: 'environment', label: 'Environment Variables', icon: Terminal },
     { id: 'settings', label: 'Keamanan & Akun', icon: ShieldCheck },
   ];
 
@@ -170,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
               Protokol WhatsApp
             </span>
-            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.8.0</span>
+            <span className="font-mono text-slate-300 font-medium text-[11px]">Gateway v2.8.1</span>
           </div>
 
           {onLogout && (

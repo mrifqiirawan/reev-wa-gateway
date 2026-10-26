@@ -1,3 +1,11 @@
+# Revisi performa, versi tetap 2.8.1
+
+Mode supabase_rpc langsung ke fungsi Belajar yang sudah ada; cache konfigurasi 5 detik dengan coalescing dan invalidasi; antrean FIFO per chat dengan 8 slot dan batas 256 pending; statistik P50/P95 per tahap pada dashboard. Tidak ada migrasi baru atau perubahan source Belajar. Mode lama tetap default sampai admin memilih mode langsung.
+
+# 2.8.1
+
+Environment Variables admin dengan penyimpanan privat, masking secret dan pemeriksaan koneksi tanpa transaksi. Timeout webhook default 30 detik yang dapat diatur, deadline DNS, HTTP status yang lebih jelas. Installer systemd, panduan VM, query pemeriksaan SQL. Tidak ada perubahan schema atau source REEV Belajar.
+
 # v2.8.0 — 19 Oktober 2026
 
 - Bot platform Supabase, menu kategori, editor fungsi dan paket/point.
