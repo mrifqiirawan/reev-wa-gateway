@@ -32,3 +32,19 @@ export async function callBelajar(event:string,phone:string,action:string,argume
  });
  if(typeof data?.ok!=='boolean'||typeof data.text!=='string'||!data.text.trim()||data.text.length>15000)throw Error('Respons REEV Belajar tidak valid.');return data;
 }
+
+
+export async function adminBelajarRpc(name:'reev_gateway_admin'|'reev_gateway_admin_settings',args:Record<string,unknown>,transport:typeof fetch=fetch){
+ const {url,key}=belajarDatabase();
+ let response:Response;
+ try{response=await transport(new URL('/rest/v1/rpc/'+name,url),{method:'POST',redirect:'error',headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify(args),signal:AbortSignal.timeout(Math.max(1000,Math.min(20000,Number(process.env.BOT_DB_TIMEOUT_MS)||12000)))});}
+ catch{throw Error('Koneksi admin Belajar terputus/batas waktu tercapai. Hasil belum diketahui. Periksa riwayat di Belajar sebelum mengulang perintah perubahan.');}
+ if(!response.ok){await response.body?.cancel();throw Error(`Admin Belajar HTTP ${response.status}. Periksa SQL BELAJAR_upgrade_v2.8.4.sql dan Environment Variables.`);}
+ return response.json();
+}
+export async function callBelajarAdmin(event:string,phone:string,action:string,argument:string,chat:string){
+ if(!event||event.length>300||!/^\+[1-9]\d{7,14}$/.test(phone)||argument.length>1100||!['profile','tasks','grades','stars','hearts','attendance','star','violation'].includes(action))throw Error('Parameter admin tidak valid.');
+ const data=await timed('belajar.admin',()=>adminBelajarRpc('reev_gateway_admin',{p_event:event,p_phone:phone,p_action:action,p_argument:argument,p_chat:chat}));
+ if(typeof data?.ok!=='boolean'||typeof data.text!=='string'||!data.text.trim()||data.text.length>15000)throw Error('Respons admin Belajar tidak valid.');
+ return data;
+}

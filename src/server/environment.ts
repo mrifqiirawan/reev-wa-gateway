@@ -8,6 +8,7 @@ import {atomicJson} from './auth.js';
 import {BotStore} from './bot-store.js';
 import {deliverWebhook} from './webhook.js';
 export const fields = [
+ {key:'BOT_GROUP_ENABLED',fallback:'false',help:'true: balas perintah di grup yang diikuti bot. Data balasan dapat dibaca semua anggota grup. Pendaftaran tetap melalui chat pribadi.'},
  {key:'BELAJAR_TRANSPORT',fallback:'webhook',help:'Pilih webhook (jalur lama) atau supabase_rpc (langsung ke fungsi database, tanpa Vercel).'},
  {key:'BELAJAR_SUPABASE_URL',help:'Wajib untuk supabase_rpc. Project Belajar Anda: https://ccrbbfpmlmifetfavndy.supabase.co'},
  {key:'BELAJAR_SUPABASE_SERVICE_ROLE_KEY',secret:true,help:'Wajib untuk supabase_rpc. Service role key project BELAJAR, hanya tersimpan di server. Bukan anon key.'},
@@ -24,6 +25,7 @@ export function validateEnvironment(values:Record<string,string>) {
  for(const [key,value] of Object.entries(values)) {
   if(!fields.some(f=>f.key===key)||typeof value!=='string'||value.length>4096||/[\r\n\0]/.test(value))throw Error('Variabel tidak diizinkan atau format tidak valid.');
   if(!value)continue;
+  if(key==='BOT_GROUP_ENABLED'&&!['true','false'].includes(value))throw Error('BOT_GROUP_ENABLED harus true atau false.');
   if(key==='BELAJAR_TRANSPORT'&&!['webhook','supabase_rpc'].includes(value))throw Error('Pilih webhook atau supabase_rpc.');
   if(key==='BOT_SUPABASE_URL'||key==='BELAJAR_SUPABASE_URL'||key==='BELAJAR_FUNCTION_URL') {
    const u=new URL(value);

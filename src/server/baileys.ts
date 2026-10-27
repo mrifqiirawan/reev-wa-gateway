@@ -260,13 +260,17 @@ export class BaileysManager {
           if (!msg.message || msg.key.fromMe || !msg.key.id) return;
           const remoteJid = msg.key.remoteJid || '';
           // Personal chats support both phone-number JIDs and privacy LIDs.
-          if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) return;
+          const group = /^[0-9]+(?:-[0-9]+)?@g\.us$/.test(remoteJid);
+          if (!group && !remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) return;
+          if (group && (process.env.BOT_GROUP_ENABLED!=='true' || type!=='notify')) return;
           try {
            await this.incomingQueue.run(remoteJid,async()=>{
             if(generation!==this.generation)return;
-            let phoneJid = remoteJid.endsWith('@s.whatsapp.net') ? remoteJid : msg.key.remoteJidAlt;
+            const actorJid = group ? msg.key.participant || '' : remoteJid;
+            if(group && !actorJid)return;
+            let phoneJid = actorJid.endsWith('@s.whatsapp.net') ? actorJid : group ? msg.key.participantAlt : msg.key.remoteJidAlt;
             if (!phoneJid?.endsWith('@s.whatsapp.net')) {
-              try { phoneJid = await socket?.signalRepository?.lidMapping?.getPNForLID(remoteJid) || undefined; }
+              try { phoneJid = await socket?.signalRepository?.lidMapping?.getPNForLID(actorJid) || undefined; }
               catch { phoneJid = undefined; } // Keep the original LID if a mapping is unavailable.
             }
             if (generation !== this.generation) return;
@@ -282,6 +286,7 @@ export class BaileysManager {
               content.stickerMessage ? '[Stiker]' : content.contactMessage || content.contactsArrayMessage ? '[Kontak]' :
               content.locationMessage || content.liveLocationMessage ? '[Lokasi]' : '';
             const messageText = text.trim() ? text : mediaLabel;
+            if (group && (!senderNumber || !text.trim().startsWith('.'))) return;
             if (!messageText) return; // Ignore protocol, reaction and other control messages.
             const seconds = Number(msg.messageTimestamp);
             const timestamp = Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : new Date().toISOString();
@@ -347,7 +352,7 @@ export class BaileysManager {
   public async sendTextMessage(recipient: string, message: string, onMessageId?: (id: string) => void, remoteJid?: string, options?: {messageId?:string;choices?:Choice[]}): Promise<{ messageId: string; latencyMs: number }> {
     const cleanPhone = recipient.replace(/[^0-9]/g, '');
     let jid = remoteJid ? jidNormalizedUser(remoteJid) : `${cleanPhone}@s.whatsapp.net`;
-    if (!/^[0-9]+@(s\.whatsapp\.net|lid)$/.test(jid)) throw new Error('Identitas tujuan tidak valid');
+    if (!/^[0-9]+@(s\.whatsapp\.net|lid)$/.test(jid) && !/^[0-9]+(?:-[0-9]+)?@g\.us$/.test(jid)) throw new Error('Identitas tujuan tidak valid');
     const start = Date.now();
 
     if (this.socket && this.status === 'connected') {

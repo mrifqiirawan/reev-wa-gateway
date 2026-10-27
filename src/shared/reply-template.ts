@@ -77,6 +77,12 @@ Nomor harus diverifikasi guru. Setelah data cocok, balas *YA* sesuai petunjuk, a
 *.point* — Saldo point
 *.paket* — Pilihan paket
 
+👩‍🏫 *KHUSUS ADMIN GURU TERDAFTAR*
+Informasi siswa: perintah info diikuti NISN.
+*.bintang NISN#jumlah#alasan*
+*.pelanggaran NISN#alasan#tebusan*
+Perubahan langsung tersimpan jika perintah berhasil. Pendaftaran tetap melalui chat pribadi bot.
+
 💡 Kirim satu perintah dalam satu pesan. Perintah informasi menampilkan data milikmu sendiri, tanpa tambahan NISN.
 Biaya point dan akses mengikuti pengaturan menu. Jika ada kendala, hubungi guru.
 

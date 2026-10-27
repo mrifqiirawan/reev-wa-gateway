@@ -4,7 +4,10 @@ test('bot admin APIs require existing admin cookie, not integration key',async()
  const config=structuredClone(defaultBotConfig);const calls:any[]=[];const store={configured:true,config:async()=>({config,revision:1}),rpc:async(name:string,args:any)=>{calls.push({name,args});return 2},request:async()=>[]} as unknown as BotStore;const engine=new BotEngine(store,async()=>({status:'sent'}));const app=express();app.use(express.json());installAuth(app,dir);installBotApi(app,store,engine);const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.on('listening',r));const base=`http://127.0.0.1:${(server.address() as any).port}`;
  try{
   assert.equal((await fetch(base+'/api/bot')).status,401);assert.equal((await fetch(base+'/api/bot',{headers:{Authorization:'Bearer synthetic-key'}})).status,401);
+  for(const method of ['GET','PUT']){assert.equal((await fetch(base+'/api/bot/admins',{method,headers:{Authorization:'Bearer synthetic-key','Content-Type':'application/json'},...(method==='PUT'?{body:'{}'}:{})})).status,401);}
   const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:process.env.ADMIN_PASSWORD})});const cookie=login.headers.get('set-cookie')!.split(';')[0];assert.equal(login.status,200);
+  assert.equal((await fetch(base+'/api/bot/admins',{method:'PUT',headers:{cookie,'Content-Type':'application/json','sec-fetch-site':'cross-site'},body:'{}'})).status,403);
+  assert.equal((await fetch(base+'/api/bot/admins',{method:'PUT',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({phone:'123',profileId:'bad',active:true})})).status,400);
   const initial=await fetch(base+'/api/bot',{headers:{cookie}});assert.equal(initial.status,200);assert.equal((await initial.json()).revision,1);
   const save=(data:any,headers:any={})=>fetch(base+'/api/bot/config',{method:'PUT',headers:{cookie,'Content-Type':'application/json',...headers},body:JSON.stringify(data)});
   const bad=structuredClone(config);bad.commands[0].command='.menu';assert.equal((await save({config:bad,revision:1})).status,400);assert.equal(calls.length,0);

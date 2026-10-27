@@ -1,10 +1,16 @@
-import {belajarConfigured} from './belajar-client.js';
+import {belajarConfigured,adminBelajarRpc} from './belajar-client.js';
 import type {Express,Request,Response} from 'express';
 import {validateConfig,defaultBotConfig} from '../shared/bot.js';
 import {BotStore} from './bot-store.js';
 import {BotEngine,normalizePhone,categoryReply} from './bot-engine.js';
 export function installBotApi(app:Express,store:BotStore,engine:BotEngine){
  const route=(fn:(req:Request,res:Response)=>Promise<any>)=>async(req:Request,res:Response)=>{try{await fn(req,res)}catch(e){res.status(400).json({success:false,error:e instanceof Error?e.message:'Permintaan gagal.'})}};
+ app.get('/api/bot/admins',route(async(_req,res)=>res.json({success:true,...await adminBelajarRpc('reev_gateway_admin_settings',{p_op:'list'})})));
+ app.put('/api/bot/admins',route(async(req,res)=>{
+  const b=req.body;if(typeof b.phone!=='string'||typeof b.profileId!=='string'||!/^[-0-9a-f]{36}$/i.test(b.profileId)||typeof b.active!=='boolean')throw Error('Nomor, akun guru dan status wajib.');
+  await adminBelajarRpc('reev_gateway_admin_settings',{p_op:'save',p_phone:normalizePhone(b.phone),p_profile:b.profileId,p_active:b.active});
+  res.json({success:true});
+ }));
  app.get('/api/bot',route(async(_req,res)=>{
   const integrationConfigured=belajarConfigured();
   if(!store.configured)return res.json({success:true,configured:false,integrationConfigured,config:defaultBotConfig,revision:0});

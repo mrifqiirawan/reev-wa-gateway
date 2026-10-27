@@ -1,10 +1,10 @@
 import {validateTemplate,suggestedTemplate,helpTemplate} from './reply-template.js';
 export type Tier = 'standard' | 'premium' | 'vip';
-export type Action = 'reply_text' | 'belajar.register' | 'belajar.profile' | 'belajar.tasks' | 'belajar.grades' | 'belajar.stars' | 'belajar.hearts' | 'belajar.attendance';
+export type Action = 'reply_text' | 'belajar.register' | 'belajar.profile' | 'belajar.tasks' | 'belajar.grades' | 'belajar.stars' | 'belajar.hearts' | 'belajar.attendance' | 'belajar.star' | 'belajar.violation';
 export interface BotCategory { id: string; name: string; enabled: boolean }
 export interface BotCommand { id: string; command: string; title: string; category: string; action: Action; text: string; cost: number; minTier: Tier; enabled: boolean }
 export interface BotConfig { enabled: boolean; title: string; timezone: string; resetHour: number; presentation: 'text' | 'interactive'; plans: Record<Tier,{name:string;price:number;points:number}>; categories: BotCategory[]; commands: BotCommand[] }
-export const actions: Record<Action,string> = {reply_text:'Balasan teks', 'belajar.register':'Tautkan NISN', 'belajar.profile':'Profil siswa','belajar.tasks':'Tugas belum selesai','belajar.grades':'Nilai siswa','belajar.stars':'Bintang','belajar.hearts':'Hati & pelanggaran','belajar.attendance':'Kehadiran'};
+export const actions: Record<Action,string> = {reply_text:'Balasan teks', 'belajar.register':'Tautkan NISN', 'belajar.profile':'Profil siswa','belajar.tasks':'Tugas belum selesai','belajar.grades':'Nilai siswa','belajar.stars':'Bintang','belajar.hearts':'Hati & pelanggaran','belajar.attendance':'Kehadiran','belajar.star':'Admin: tambah bintang','belajar.violation':'Admin: catat pelanggaran'};
 export const tierOrder: Tier[] = ['standard','premium','vip'];
 export const reservedCommands = ['.menu','.point','.paket','.batal','ya','batal'];
 export const defaultBotConfig: BotConfig = {
@@ -14,7 +14,9 @@ export const defaultBotConfig: BotConfig = {
  commands:[
   {id:'info_daftar',command:'.infodaftar',title:'Tautkan NISN',category:'belajar',action:'belajar.register',text:'',cost:0,minTier:'standard',enabled:true},
   ...(['profile','tasks','grades','stars','hearts','attendance'] as const).map((a,i)=>({id:'info_'+a,command:['.infoprofil','.infotugas','.infonilai','.infobintang','.infohati','.infoabsen'][i],title:['Profil saya','Tugas saya','Nilai saya','Bintang saya','Hati saya','Kehadiran saya'][i],category:'belajar',action:('belajar.'+a) as Action,text:suggestedTemplate('belajar.'+a),cost:[1,2,2,1,1,1][i],minTier:'standard' as Tier,enabled:true})),
-  {id:'help',command:'.bantuan',title:'Panduan singkat',category:'layanan',action:'reply_text',text:helpTemplate,cost:0,minTier:'standard',enabled:true}
+  {id:'help',command:'.bantuan',title:'Panduan singkat',category:'layanan',action:'reply_text',text:helpTemplate,cost:0,minTier:'standard',enabled:true},
+  {id:'admin_star',command:'.bintang',title:'Admin: tambah bintang',category:'layanan',action:'belajar.star',text:'',cost:0,minTier:'standard',enabled:true},
+  {id:'admin_violation',command:'.pelanggaran',title:'Admin: catat pelanggaran',category:'layanan',action:'belajar.violation',text:'',cost:0,minTier:'standard',enabled:true}
  ]
 };
 export function validateConfig(value: unknown): BotConfig {

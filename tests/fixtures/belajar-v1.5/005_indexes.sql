@@ -1,0 +1,11 @@
+begin;
+create index targets_student on public.task_targets(student_id,task_id);
+create index grades_student on public.grades(student_id,task_id);
+create index attendance_student on public.attendance_records(student_id,meeting_id);
+create index stars_student_period on public.star_transactions(student_id,semester_id,created_at desc);
+create index hearts_student_period on public.heart_transactions(student_id,semester_id);
+create index violations_student_period on public.violations(student_id,semester_id,created_at desc);
+create index history_student on public.grade_history(student_id,task_id,created_at desc);
+create index confirmations_phone on public.pending_confirmations(phone) where used_at is null;
+create index outbox_gateway on public.wa_outbox(gateway_id) where gateway_id is not null;
+commit;
