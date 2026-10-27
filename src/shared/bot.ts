@@ -1,4 +1,4 @@
-import {validateTemplate} from './reply-template.js';
+import {validateTemplate,suggestedTemplate,helpTemplate} from './reply-template.js';
 export type Tier = 'standard' | 'premium' | 'vip';
 export type Action = 'reply_text' | 'belajar.register' | 'belajar.profile' | 'belajar.tasks' | 'belajar.grades' | 'belajar.stars' | 'belajar.hearts' | 'belajar.attendance';
 export interface BotCategory { id: string; name: string; enabled: boolean }
@@ -13,8 +13,8 @@ export const defaultBotConfig: BotConfig = {
  categories:[{id:'belajar',name:'REEV Belajar · Informatika',enabled:true},{id:'layanan',name:'Layanan',enabled:true}],
  commands:[
   {id:'info_daftar',command:'.infodaftar',title:'Tautkan NISN',category:'belajar',action:'belajar.register',text:'',cost:0,minTier:'standard',enabled:true},
-  ...(['profile','tasks','grades','stars','hearts','attendance'] as const).map((a,i)=>({id:'info_'+a,command:['.infoprofil','.infotugas','.infonilai','.infobintang','.infohati','.infoabsen'][i],title:['Profil saya','Tugas saya','Nilai saya','Bintang saya','Hati saya','Kehadiran saya'][i],category:'belajar',action:('belajar.'+a) as Action,text:'',cost:[1,2,2,1,1,1][i],minTier:'standard' as Tier,enabled:true})),
-  {id:'help',command:'.bantuan',title:'Panduan singkat',category:'layanan',action:'reply_text',text:'Kirim .menu untuk kategori, .point untuk saldo, dan .paket untuk paket. Untuk REEV Belajar, kirim .infodaftar NISN. Nomor harus diverifikasi guru terlebih dahulu.',cost:0,minTier:'standard',enabled:true}
+  ...(['profile','tasks','grades','stars','hearts','attendance'] as const).map((a,i)=>({id:'info_'+a,command:['.infoprofil','.infotugas','.infonilai','.infobintang','.infohati','.infoabsen'][i],title:['Profil saya','Tugas saya','Nilai saya','Bintang saya','Hati saya','Kehadiran saya'][i],category:'belajar',action:('belajar.'+a) as Action,text:suggestedTemplate('belajar.'+a),cost:[1,2,2,1,1,1][i],minTier:'standard' as Tier,enabled:true})),
+  {id:'help',command:'.bantuan',title:'Panduan singkat',category:'layanan',action:'reply_text',text:helpTemplate,cost:0,minTier:'standard',enabled:true}
  ]
 };
 export function validateConfig(value: unknown): BotConfig {
