@@ -284,7 +284,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.8.1',
+    version: '2.8.2',
     engine: 'Baileys Multi-Device (unofficial)',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,

@@ -1,3 +1,4 @@
+import {validateTemplate} from './reply-template.js';
 export type Tier = 'standard' | 'premium' | 'vip';
 export type Action = 'reply_text' | 'belajar.register' | 'belajar.profile' | 'belajar.tasks' | 'belajar.grades' | 'belajar.stars' | 'belajar.hearts' | 'belajar.attendance';
 export interface BotCategory { id: string; name: string; enabled: boolean }
@@ -30,6 +31,7 @@ export function validateConfig(value: unknown): BotConfig {
  const fids=new Set<string>();
  for(const f of c.commands){if(!/^[a-z][a-z0-9_-]{0,49}$/.test(f.id)||fids.has(f.id)||!/^\.[a-z][a-z0-9_]{0,39}$/.test(f.command)||reservedCommands.includes(f.command)||keys.has(f.command))throw Error('ID/perintah duplikat atau memakai perintah sistem.');
  if(!ids.has(f.category)||typeof f.title!=='string'||!f.title.trim()||f.title.length>80||!Object.hasOwn(actions,f.action)||!tierOrder.includes(f.minTier)||!Number.isInteger(f.cost)||f.cost<0||f.cost>1000000||typeof f.enabled!=='boolean'||typeof f.text!=='string'||f.text.length>3000)throw Error('Pengaturan fungsi tidak valid.');
+ if(f.action!=='reply_text')validateTemplate(f.action,f.text);
  if(f.action==='reply_text'&&!f.text.trim())throw Error('Isi balasan teks wajib.');
  if(f.action==='belajar.register'&&(f.cost!==0||f.minTier!=='standard'))throw Error('Penautan NISN harus gratis dan tersedia bagi Standar.');
  fids.add(f.id);keys.add(f.command);}

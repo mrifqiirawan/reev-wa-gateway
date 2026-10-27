@@ -149,7 +149,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
         {/* Footer info */}
         <div className="text-center text-[11px] text-slate-500 font-mono">
-          REEV WA Gateway v2.8.1 · Sesi persisten dengan cookie HttpOnly
+          REEV WA Gateway v2.8.2 · Sesi persisten dengan cookie HttpOnly
         </div>
       </div>
     </div>
