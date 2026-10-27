@@ -169,7 +169,7 @@ async function sendReal(recipient: unknown, message: unknown, type: MessageLogDa
   if (deviceId !== 'device_primary') throw new Error('deviceId tidak dikenal. Gunakan device_primary.');
   let phone=String(recipient || '').replace(/[^0-9]/g,''); if(phone.startsWith('0')) phone='62'+phone.slice(1);
   if((!remoteJid && !/^[1-9][0-9]{7,14}$/.test(phone)) || typeof message !== 'string' || !message.trim() || message.length>16000) throw new Error('Nomor/pesan tidak valid (maksimum 16000 karakter).');
-  const log: MessageLogData={id:crypto.randomUUID(),recipient:phone || remoteJid!,content:message,type,status:'sending',timestamp:new Date().toISOString(),latencyMs:0,retryCount:0,deviceId};
+  const log: MessageLogData={id:crypto.randomUUID(),recipient:remoteJid?.endsWith('@g.us')?remoteJid:phone || remoteJid!,content:message,type,status:'sending',timestamp:new Date().toISOString(),latencyMs:0,retryCount:0,deviceId};
   messageLogs.unshift(log); persist();
   try { const result=await baileysManager.sendTextMessage(phone,message,id=>{log.id=id;persist();},remoteJid,options); Object.assign(log,result,{id:result.messageId}); finishSend(log); persist(); if(log.status === 'failed') throw new Error(log.errorMessage || 'WhatsApp menolak pesan.'); void dispatch('message.sent',log); return {success:true,...result,status:log.status,recipient:log.recipient}; }
   catch(e) { failSend(log,log.errorCode || 'SEND_ERROR',log.errorMessage || String(e)); persist(); void dispatch('message.failed',log); throw e; }
@@ -249,7 +249,7 @@ baileysManager.setReceiptHandler((id,status)=>{if(botStore.configured)void botSt
 baileysManager.setStatusHandler(status=>{void dispatch('device.status',{status});if(status==='connected')void drainBulk();});
 // Incoming messages are recorded even when automatic replies are disabled.
 baileysManager.setIncomingMessageHandler(async ({senderNumber,senderName,messageText,remoteJid,messageId,timestamp,allowAutoReply})=>{
-  if(inboxMessages.some(row=>row.sourceMessageId===messageId && row.remoteJid===remoteJid)) return null;
+  if(inboxMessages.some(row=>row.sourceMessageId===messageId && row.remoteJid===remoteJid && row.senderNumber===senderNumber)) return null;
   const match=findMatchingRule(messageText);
   const row: InboxMessageData={id:crypto.randomUUID(),sourceMessageId:messageId,remoteJid,senderNumber,senderName,messageText,timestamp,status:'ignored',deviceId:'device_primary'};
   inboxMessages.unshift(row); persist();
@@ -257,6 +257,7 @@ baileysManager.setIncomingMessageHandler(async ({senderNumber,senderName,message
     try{if(await botEngine.handle({senderNumber,messageText,sourceMessageId:messageId,remoteJid,deviceId:'device_primary',onReply:text=>{row.botReplyText=text}})){row.status=row.botReplyText?'replied':'ignored';persist();return null;}}
     catch{console.error('Custom bot processing failed; periksa koneksi/migrasi bot.');return null;}
   }
+  if(remoteJid.endsWith('@g.us'))return null; // Groups never reach legacy webhook/fallback responders.
   void dispatch('message.received',row);
   if(!allowAutoReply) return null;
   let reply='';
@@ -284,7 +285,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     success: true,
     app: 'REEV WA Gateway',
-    version: '2.8.3',
+    version: '2.8.4',
     engine: 'Baileys Multi-Device (unofficial)',
     uptime: process.uptime(),
     activeDevices: devState.status === 'connected' ? 1 : 0,
