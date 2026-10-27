@@ -1,3 +1,4 @@
+import {renderReply} from '../shared/reply-template.js';
 import {generateMessageIDV2} from '@whiskeysockets/baileys';
 import {type BotConfig,type BotCommand,tierOrder,validateConfig} from '../shared/bot.js';
 import {BotStore} from './bot-store.js';
@@ -73,7 +74,7 @@ export class BotEngine {
     } else {
      const f=started.function as BotCommand;
      if(f.action==='reply_text'){if(words.length>1)throw Error('Perintah ini tidak memerlukan argumen.');reply={text:f.text}}
-     else {const r=await this.belajar(event,phone,f.action.slice(8),words.slice(1).join(' '));reply={text:r.text};ok=r.ok;pending=r.pending??null;}
+     else {const r=await this.belajar(event,phone,f.action.slice(8),words.slice(1).join(' '));reply={text:renderReply(f.action,f.text,r.text,r.ok)};ok=r.ok;pending=r.pending??null;}
     }
    } catch(e){ok=false;reply={text:e instanceof Error?e.message:'Fungsi gagal dijalankan. Point dikembalikan.'};}
    const finished=await this.store.rpc('gw_finish',{p_event:event,p_ok:ok,p_reply:reply,p_pending:pending});if(!finished)return true;
